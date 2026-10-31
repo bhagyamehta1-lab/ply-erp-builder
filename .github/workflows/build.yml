@@ -124,7 +124,7 @@ jobs:
             source/src-tauri/target
           do
             if [ -d "$dir" ]; then
-              find "$dir" -type f \\( -name "*.txt" -o -name "*.log" -o -name "*.html" \\) -print
+              find "$dir" -type f \( -name "*.txt" -o -name "*.log" -o -name "*.html" \) -print
             fi
           done
           echo "=== Matching error lines from Gradle daemon logs ==="
@@ -135,7 +135,7 @@ jobs:
           fi
           echo "=== Matching error lines from generated text reports/logs ==="
           find source/src-tauri/gen/android source/src-tauri/target \
-            -type f \\( -name "*.txt" -o -name "*.log" \\) -print0 2>/dev/null |
+            -type f \( -name "*.txt" -o -name "*.log" \) -print0 2>/dev/null |
             xargs -0 -r grep -n -E -i -C 2 \
               "FAILURE:|What went wrong:|Execution failed|Caused by:|error:|error\\[|could not|failed to" 2>/dev/null |
             tail -n 160 || true
