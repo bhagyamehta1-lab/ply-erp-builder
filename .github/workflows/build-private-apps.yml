@@ -148,15 +148,37 @@ jobs:
         working-directory: private-source
         run: npm run tauri:android:build -- --apk --debug
 
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
       - name: Android emulator install and launch smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
-          target: google_apis
+          api-level: 30
+          target: default
           arch: x86_64
-          profile: pixel_2
+          profile: Nexus 6
           disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
+            adb kill-server
+            adb start-server
+            adb wait-for-device
+            for attempt in $(seq 1 60); do
+              BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              if [ "$BOOTED" = "1" ]; then
+                echo "Emulator booted successfully!"
+                break
+              fi
+              echo "Waiting for emulator to fully boot ($attempt/60)..."
+              sleep 5
+            done
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+            adb shell input keyevent 82
             APK="$(find private-source/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
             test -n "$APK"
             adb install -r "$APK"
