@@ -1,0 +1,141 @@
+name: Desktop and Mobile Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Windows Build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        working-directory: source
+        run: npm install
+
+      - name: Build executable
+        working-directory: source
+        run: npm run tauri:build -- --no-bundle
+
+      - name: Publish private release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
+          TARGET_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          $exe = Get-ChildItem "source/src-tauri/target/release" -Filter "*.exe" -File |
+            Where-Object { $_.Name -notmatch "uninstall" } |
+            Select-Object -First 1
+          if (-not $exe) { throw "Executable not found" }
+          $tag = "desktop-$env:GITHUB_RUN_NUMBER"
+          gh release create $tag $exe.FullName --repo $env:TARGET_REPOSITORY --title "Desktop build $env:GITHUB_RUN_NUMBER" --notes "Automated desktop build."
+
+  mobile:
+    name: Android Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"
+
+      - name: Install Android SDK platform and NDK
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
+
+      - name: Configure Android NDK
+        run: |
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install dependencies
+        working-directory: source
+        run: npm install
+
+      - name: Initialize mobile project
+        working-directory: source
+        run: npm run tauri:android:init -- --ci
+
+      - name: Build Android package
+        working-directory: source
+        run: npm run tauri:android:build -- --target aarch64 --apk --ci
+
+      - name: Sign package with temporary test key
+        working-directory: source
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/build-test.keystore" \
+            -storepass android \
+            -alias build-test \
+            -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Build Test, OU=Development, O=Build, L=NA, ST=NA, C=US"
+
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          while IFS= read -r -d '' apk; do
+            signed="${apk%.apk}-signed.apk"
+            "$APKSIGNER" sign \
+              --ks "$RUNNER_TEMP/build-test.keystore" \
+              --ks-key-alias build-test \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --out "$signed" "$apk"
+            "$APKSIGNER" verify --verbose "$signed"
+          done < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
+
+      - name: Publish private release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
+          TARGET_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          APK="$(find source/src-tauri/gen/android/app/build/outputs/apk -type f -name '*-signed.apk' -print -quit)"
+          test -n "$APK"
+          gh release create "mobile-$GITHUB_RUN_NUMBER" "$APK" \
+            --repo "$TARGET_REPOSITORY" \
+            --title "Mobile build $GITHUB_RUN_NUMBER" \
+            --notes "Automated Android test-signed build."
