@@ -1,4 +1,4 @@
-name: Private ERP Quality Checks # validates transactional draft voucher edit tests
+name: Private ERP Quality Checks # validates draft voucher edit ID preservation
 
 on:
   workflow_dispatch:
