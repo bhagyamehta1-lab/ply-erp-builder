@@ -1,4 +1,4 @@
-name: Private ERP Quality Checks # validates the private development branch
+name: Private ERP Quality Checks # validates the private development branch including draft cancel reset
 
 on:
   workflow_dispatch:
