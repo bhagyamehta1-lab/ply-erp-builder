@@ -52,6 +52,37 @@ jobs:
         working-directory: private-source
         run: npm run tauri:build -- --bundles nsis
 
+      - name: Install and launch Windows app smoke test
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "private-source/src-tauri/target/release/bundle/nsis" -Filter *.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+          $installDir = Join-Path $env:RUNNER_TEMP "PlyMetrixSmoke"
+          Start-Process -FilePath $installer.FullName -ArgumentList @("/S", "/D=$installDir") -Wait
+          $app = Get-ChildItem $installDir -Filter "*.exe" -Recurse | Where-Object { $_.Name -notmatch "uninstall" } | Select-Object -First 1
+          if (-not $app) { throw "Installed application executable not found" }
+          $proc = Start-Process -FilePath $app.FullName -PassThru
+          Start-Sleep -Seconds 15
+          $proc.Refresh()
+          if ($proc.HasExited) { throw "PlyMetrix exited during startup (exit code $($proc.ExitCode))" }
+          if (-not $proc.MainWindowHandle -or -not $proc.MainWindowTitle) { throw "PlyMetrix main window did not appear" }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Windows smoke test passed: $($proc.MainWindowTitle)"
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $bitmap.Save((Join-Path $env:RUNNER_TEMP "windows-smoke.png"))
+          $graphics.Dispose(); $bitmap.Dispose()
+
+      - name: Upload Windows smoke screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlyMetrix-Windows-Smoke-Screenshot
+          path: ${{ runner.temp }}/windows-smoke.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
@@ -117,6 +148,36 @@ jobs:
         working-directory: private-source
         run: npm run tauri:android:build -- --apk --debug
 
+      - name: Android emulator install and launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            APK="$(find private-source/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
+            test -n "$APK"
+            adb install -r "$APK"
+            adb shell am force-stop com.plymetrix.erp
+            adb shell monkey -p com.plymetrix.erp -c android.intent.category.LAUNCHER 1
+            sleep 20
+            adb shell pidof com.plymetrix.erp
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.plymetrix.erp'
+            if adb logcat -d -t 3000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep 'com.plymetrix.erp'; then
+              echo "Android app crash detected"
+              exit 1
+            fi
+            adb exec-out screencap -p > "$RUNNER_TEMP/android-smoke.png"
+
+      - name: Upload Android smoke screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlyMetrix-Android-Smoke-Screenshot
+          path: ${{ runner.temp }}/android-smoke.png
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
