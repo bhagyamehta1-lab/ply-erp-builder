@@ -98,6 +98,17 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
+      - name: Install Android NDK tool aliases for OpenSSL
+        shell: bash
+        run: |
+          NDK_BIN="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" -path '*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib' -print -quit | xargs dirname)"
+          if [ -z "$NDK_BIN" ] || [ ! -x "$NDK_BIN/llvm-ranlib" ]; then
+            echo "Android NDK llvm-ranlib was not found"
+            exit 1
+          fi
+          ln -sf "$NDK_BIN/llvm-ranlib" "$NDK_BIN/aarch64-linux-android-ranlib"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
+
       - name: Install frontend dependencies
         working-directory: private-source
         run: npm install --no-audit --no-fund
