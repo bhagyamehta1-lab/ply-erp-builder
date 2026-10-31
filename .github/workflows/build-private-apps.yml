@@ -155,6 +155,12 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Android emulator install and launch smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -165,20 +171,23 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            adb kill-server
-            adb start-server
             adb wait-for-device
-            for attempt in $(seq 1 60); do
-              BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            adb shell input keyevent 82
+            for attempt in $(seq 1 36); do
+              BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
               if [ "$BOOTED" = "1" ]; then
                 echo "Emulator booted successfully!"
                 break
               fi
-              echo "Waiting for emulator to fully boot ($attempt/60)..."
+              if [ "$attempt" -eq 36 ]; then
+                echo "Emulator failed to finish booting"
+                adb devices -l
+                adb logcat -d -t 500
+                exit 1
+              fi
+              echo "Waiting for emulator to fully boot... ($attempt/36)"
               sleep 5
             done
-            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-            adb shell input keyevent 82
             APK="$(find private-source/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
             test -n "$APK"
             adb install -r "$APK"
