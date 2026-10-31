@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: main
+          ref: fix/windows-android-build
           token: ${{ secrets.PRIVATE_PAT }}
           path: source
           persist-credentials: false
@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: main
+          ref: fix/windows-android-build
           token: ${{ secrets.PRIVATE_PAT }}
           path: source
           persist-credentials: false
@@ -86,8 +86,16 @@ jobs:
 
       - name: Configure Android NDK
         run: |
+          NDK_BIN="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin"
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          ln -sf "$NDK_BIN/llvm-ar" "$NDK_BIN/aarch64-linux-android-ar"
+          ln -sf "$NDK_BIN/llvm-ranlib" "$NDK_BIN/aarch64-linux-android-ranlib"
+          ln -sf "$NDK_BIN/llvm-strip" "$NDK_BIN/aarch64-linux-android-strip"
+          echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB_aarch64_linux_android=$NDK_BIN/llvm-ranlib" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK_BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
