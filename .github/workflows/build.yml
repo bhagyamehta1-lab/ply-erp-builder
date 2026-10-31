@@ -105,6 +105,33 @@ jobs:
         working-directory: source
         run: npm run tauri:android:build -- --target aarch64 --apk --ci
 
+      - name: Collect Android build failure details
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== Android build failure summary ==="
+          for dir in \
+            source/src-tauri/gen/android/app/build/reports \
+            source/src-tauri/gen/android/build/reports \
+            source/src-tauri/target
+          do
+            if [ -d "$dir" ]; then
+              find "$dir" -type f \\( -name "*.txt" -o -name "*.log" -o -name "*.html" \\) -print
+            fi
+          done
+          echo "=== Matching error lines from Gradle daemon logs ==="
+          if [ -d "$HOME/.gradle/daemon" ]; then
+            grep -R -n -E -i -C 3 \
+              "FAILURE:|What went wrong:|Execution failed|Caused by:|error:|error\\[|could not|failed to" \
+              "$HOME/.gradle/daemon" --include="*.out.log" 2>/dev/null | tail -n 160 || true
+          fi
+          echo "=== Matching error lines from generated text reports/logs ==="
+          find source/src-tauri/gen/android source/src-tauri/target \
+            -type f \\( -name "*.txt" -o -name "*.log" \\) -print0 2>/dev/null |
+            xargs -0 -r grep -n -E -i -C 2 \
+              "FAILURE:|What went wrong:|Execution failed|Caused by:|error:|error\\[|could not|failed to" 2>/dev/null |
+            tail -n 160 || true
+
       - name: Sign package with temporary test key
         working-directory: source
         run: |
