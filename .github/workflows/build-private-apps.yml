@@ -164,25 +164,10 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-boot-timeout: 300
           script: |
-            adb kill-server
-            adb start-server
             adb wait-for-device
-            for attempt in $(seq 1 60); do
-              BOOTED="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
-              if [ "$BOOTED" = "1" ]; then
-                echo "Emulator booted successfully!"
-                break
-              fi
-              if [ "$attempt" -eq 60 ]; then
-                echo "Emulator failed to finish booting"
-                adb devices -l
-                adb logcat -d -t 500
-                exit 1
-              fi
-              echo "Waiting for emulator to fully boot... ($attempt/60)"
-              sleep 5
-            done
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
             adb shell input keyevent 82
             APK="$(find private-source/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
             test -n "$APK"
@@ -192,10 +177,7 @@ jobs:
             sleep 20
             adb shell pidof com.plymetrix.erp
             adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.plymetrix.erp'
-            if adb logcat -d -t 3000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep 'com.plymetrix.erp'; then
-              echo "Android app crash detected"
-              exit 1
-            fi
+            ! adb logcat -d -t 3000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep -F 'com.plymetrix.erp'
             adb exec-out screencap -p > "$RUNNER_TEMP/android-smoke.png"
 
       - name: Upload Android smoke screenshot
