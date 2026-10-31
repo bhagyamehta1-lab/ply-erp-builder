@@ -1,0 +1,111 @@
+name: Private ERP Quality Checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-erp-quality-checks
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Private source quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout public builder
+        uses: actions/checkout@v4
+
+      - name: Checkout private ERP source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: fix/windows-android-build
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: private-source
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y -qq \
+            build-essential curl wget file libxdo-dev libssl-dev \
+            librsvg2-dev libayatana-appindicator3-dev libwebkit2gtk-4.1-dev \
+            >/dev/null 2>&1
+
+      - name: Install frontend dependencies
+        working-directory: private-source
+        run: |
+          npm install --no-audit --no-fund >/dev/null 2>&1 || {
+            echo "Frontend dependency installation: FAILED"
+            exit 1
+          }
+          echo "Frontend dependency installation: PASSED"
+
+      - name: TypeScript checks
+        working-directory: private-source
+        run: |
+          if npm run typecheck >/tmp/ply-typecheck.log 2>&1; then
+            echo "TypeScript typecheck: PASSED"
+          else
+            echo "TypeScript typecheck: FAILED (private compiler output suppressed)"
+            exit 1
+          fi
+
+      - name: Frontend production build
+        working-directory: private-source
+        run: |
+          if npm run build >/tmp/ply-frontend-build.log 2>&1; then
+            echo "Frontend production build: PASSED"
+          else
+            echo "Frontend production build: FAILED (private compiler output suppressed)"
+            exit 1
+          fi
+
+      - name: Rust formatting checks
+        working-directory: private-source
+        run: |
+          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >/tmp/ply-rustfmt-app.log 2>&1 &&
+             cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc.log 2>&1; then
+            echo "Rust formatting: PASSED"
+          else
+            echo "Rust formatting: FAILED (private formatter output suppressed)"
+            exit 1
+          fi
+
+      - name: SQLCipher storage proof-of-concept tests
+        working-directory: private-source
+        run: |
+          if cargo test --manifest-path native/storage-poc/Cargo.toml >/tmp/ply-storage-tests.log 2>&1; then
+            echo "SQLCipher storage tests: PASSED"
+          else
+            echo "SQLCipher storage tests: FAILED (private test output suppressed)"
+            exit 1
+          fi
+
+      - name: Tauri application Rust tests
+        working-directory: private-source
+        run: |
+          if cargo test --manifest-path src-tauri/Cargo.toml >/tmp/ply-tauri-tests.log 2>&1; then
+            echo "Tauri Rust tests: PASSED"
+          else
+            echo "Tauri Rust tests: FAILED (private test output suppressed)"
+            exit 1
+          fi
+
+      - name: Final result
+        if: success()
+        run: echo "All private ERP quality checks passed. No source files or build artifacts were uploaded."
