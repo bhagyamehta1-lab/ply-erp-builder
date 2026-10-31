@@ -53,12 +53,21 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: private-source
+        shell: bash
         run: |
-          npm install --no-audit --no-fund >/dev/null 2>&1 || {
-            echo "Frontend dependency installation: FAILED"
-            exit 1
-          }
-          echo "Frontend dependency installation: PASSED"
+          for attempt in 1 2 3; do
+            if npm install --no-audit --no-fund >/tmp/ply-npm-install.log 2>&1; then
+              echo "Frontend dependency installation: PASSED"
+              exit 0
+            fi
+            echo "Frontend dependency installation attempt $attempt failed."
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+          echo "Frontend dependency installation: FAILED; diagnostic tail follows."
+          tail -n 80 /tmp/ply-npm-install.log
+          exit 1
 
       - name: TypeScript checks
         working-directory: private-source
