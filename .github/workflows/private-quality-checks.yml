@@ -77,14 +77,35 @@ jobs:
 
       - name: Rust formatting checks
         working-directory: private-source
+        shell: bash
         run: |
-          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >/tmp/ply-rustfmt-app.log 2>&1 &&
-             cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc.log 2>&1; then
-            echo "Rust formatting: PASSED"
+          failed=0
+
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >/tmp/ply-rustfmt-app.log 2>&1
+          app_status=$?
+          if [ "$app_status" -eq 0 ]; then
+            echo "Tauri Rust formatting: PASSED"
           else
-            echo "Rust formatting: FAILED (private formatter output suppressed)"
+            echo "Tauri Rust formatting: FAILED"
+            grep -E '^Diff in ' /tmp/ply-rustfmt-app.log | sed -E 's#^.*/([^/]+\.rs):([0-9]+):.*#Formatting needed: \1 (line \2)#' | sort -u | head -n 30 || true
+            failed=1
+          fi
+
+          cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc.log 2>&1
+          poc_status=$?
+          if [ "$poc_status" -eq 0 ]; then
+            echo "SQLCipher POC Rust formatting: PASSED"
+          else
+            echo "SQLCipher POC Rust formatting: FAILED"
+            grep -E '^Diff in ' /tmp/ply-rustfmt-poc.log | sed -E 's#^.*/([^/]+\.rs):([0-9]+):.*#Formatting needed: \1 (line \2)#' | sort -u | head -n 30 || true
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Rust formatting checks: FAILED (only filenames and line numbers shown; source diff suppressed)"
             exit 1
           fi
+          echo "Rust formatting checks: PASSED"
 
       - name: SQLCipher storage proof-of-concept tests
         working-directory: private-source
