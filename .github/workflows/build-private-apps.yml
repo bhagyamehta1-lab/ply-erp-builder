@@ -1,0 +1,113 @@
+name: Build Windows EXE and Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-private-apps.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-erp-app-builds
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows NSIS installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout public builder
+        uses: actions/checkout@v4
+
+      - name: Checkout private ERP source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: fix/windows-android-build
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: private-source
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Install frontend dependencies
+        working-directory: private-source
+        run: npm install --no-audit --no-fund
+
+      - name: Build Windows installer
+        working-directory: private-source
+        run: npm run tauri:build -- --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlyMetrix-Windows-EXE
+          path: private-source/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public builder
+        uses: actions/checkout@v4
+
+      - name: Checkout private ERP source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: fix/windows-android-build
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: private-source
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up stable Rust and Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install frontend dependencies
+        working-directory: private-source
+        run: npm install --no-audit --no-fund
+
+      - name: Build debug APK
+        working-directory: private-source
+        run: npm run tauri:android:build -- --apk --debug
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlyMetrix-Android-APK
+          path: private-source/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
