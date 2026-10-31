@@ -48,7 +48,9 @@ jobs:
             Select-Object -First 1
           if (-not $exe) { throw "Executable not found" }
           $tag = "desktop-$env:GITHUB_RUN_NUMBER"
-          gh release create $tag $exe.FullName --repo $env:TARGET_REPOSITORY --title "Desktop build $env:GITHUB_RUN_NUMBER" --notes "Automated desktop build."
+          $sourceSha = git -C source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or -not $sourceSha) { throw "Could not determine source commit" }
+          gh release create $tag $exe.FullName --repo $env:TARGET_REPOSITORY --target $sourceSha --title "Desktop build $env:GITHUB_RUN_NUMBER" --notes "Automated desktop build."
 
   mobile:
     name: Android Build
@@ -170,7 +172,10 @@ jobs:
         run: |
           APK="$(find source/src-tauri/gen/android/app/build/outputs/apk -type f -name '*-signed.apk' -print -quit)"
           test -n "$APK"
+          SOURCE_SHA="$(git -C source rev-parse HEAD)"
+          test -n "$SOURCE_SHA"
           gh release create "mobile-$GITHUB_RUN_NUMBER" "$APK" \
             --repo "$TARGET_REPOSITORY" \
+            --target "$SOURCE_SHA" \
             --title "Mobile build $GITHUB_RUN_NUMBER" \
             --notes "Automated Android test-signed build."
