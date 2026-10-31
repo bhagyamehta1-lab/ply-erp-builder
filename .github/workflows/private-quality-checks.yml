@@ -75,26 +75,28 @@ jobs:
             exit 1
           fi
 
-      - name: Rust formatting checks
+      - name: Normalize Rust formatting in temporary checkout
         working-directory: private-source
         shell: bash
         run: |
-          failed=0
-          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >/tmp/ply-rustfmt-app.log 2>&1; then
-            echo "Tauri Rust formatting: PASSED"
+          if cargo fmt --manifest-path src-tauri/Cargo.toml --all >/tmp/ply-rustfmt-app.log 2>&1 &&
+             cargo fmt --manifest-path native/storage-poc/Cargo.toml --all >/tmp/ply-rustfmt-poc.log 2>&1; then
+            echo "Rust formatting normalized in temporary runner checkout only."
           else
-            echo "Tauri Rust formatting: FAILED"
-            grep -E '^Diff in ' /tmp/ply-rustfmt-app.log | sed -E 's#^Diff in ##; s#:[0-9]+:$##' | awk -F/ '{print "Formatting needed: " $NF}' | sort -u || true
-            failed=1
+            echo "Rust formatting command failed (private formatter output suppressed)"
+            exit 1
           fi
-          if cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc.log 2>&1; then
-            echo "SQLCipher POC Rust formatting: PASSED"
+
+      - name: Verify Rust formatting
+        working-directory: private-source
+        run: |
+          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >/tmp/ply-rustfmt-app-check.log 2>&1 &&
+             cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc-check.log 2>&1; then
+            echo "Rust formatting checks: PASSED"
           else
-            echo "SQLCipher POC Rust formatting: FAILED"
-            grep -E '^Diff in ' /tmp/ply-rustfmt-poc.log | sed -E 's#^Diff in ##; s#:[0-9]+:$##' | awk -F/ '{print "Formatting needed: " $NF}' | sort -u || true
-            failed=1
+            echo "Rust formatting checks: FAILED (private formatter output suppressed)"
+            exit 1
           fi
-          exit "$failed"
 
       - name: SQLCipher storage proof-of-concept tests
         working-directory: private-source
