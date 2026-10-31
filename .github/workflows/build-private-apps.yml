@@ -185,3 +185,54 @@ jobs:
           path: private-source/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
+
+  post-smoke-validation:
+    name: Post-smoke functional and privacy-safe checks
+    needs: [windows, android]
+    if: ${{ needs.windows.result == 'success' && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private ERP source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPOSITORY }}
+          ref: fix/windows-android-build
+          token: ${{ secrets.PRIVATE_PAT }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Frontend typecheck
+        run: npm run typecheck
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Rust and local storage tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Native storage proof-of-concept tests
+        working-directory: native/storage-poc
+        run: cargo test
+
+      - name: Publish verification scope
+        run: |
+          {
+            echo "## Post-smoke validation passed"
+            echo "- Both Windows and Android build + launch smoke jobs succeeded before this job started."
+            echo "- Frontend typecheck and production build passed."
+            echo "- Rust application and native storage tests passed."
+            echo "- This job uses source code and synthetic/local test fixtures only; it does not access production ERP records."
+            echo "- Full business-module end-to-end workflows remain a separate test scope."
+          } >> "$GITHUB_STEP_SUMMARY"
