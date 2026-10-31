@@ -84,14 +84,14 @@ jobs:
             echo "Tauri Rust formatting: PASSED"
           else
             echo "Tauri Rust formatting: FAILED"
-            grep -E '^Diff in ' /tmp/ply-rustfmt-app.log | sed -E 's/^Diff in ([^:]+):.*/  File: \\1/' | sort -u || true
+            grep -E '^Diff in ' /tmp/ply-rustfmt-app.log | sed -E 's#^Diff in ##; s#:[0-9]+:$##' | awk -F/ '{print "Formatting needed: " $NF}' | sort -u || true
             failed=1
           fi
           if cargo fmt --manifest-path native/storage-poc/Cargo.toml --all -- --check >/tmp/ply-rustfmt-poc.log 2>&1; then
             echo "SQLCipher POC Rust formatting: PASSED"
           else
             echo "SQLCipher POC Rust formatting: FAILED"
-            grep -E '^Diff in ' /tmp/ply-rustfmt-poc.log | sed -E 's/^Diff in ([^:]+):.*/  File: \\1/' | sort -u || true
+            grep -E '^Diff in ' /tmp/ply-rustfmt-poc.log | sed -E 's#^Diff in ##; s#:[0-9]+:$##' | awk -F/ '{print "Formatting needed: " $NF}' | sort -u || true
             failed=1
           fi
           exit "$failed"
