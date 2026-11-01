@@ -172,12 +172,8 @@ jobs:
             echo "Smoke-test working directory: $(pwd)"
             echo "GitHub workspace: ${GITHUB_WORKSPACE:-unset}"
             APK="$(find /home/runner/work -type f -path '*/outputs/apk/*/debug/*.apk' -print -quit)"
-            if [ -z "$APK" ]; then
-              echo "No debug APK found under runner workspace"
-              find /home/runner/work -type f -name '*.apk' -print | head -50 || true
-              exit 1
-            fi
-            echo "Using APK: $APK"
+            echo "Using APK: ${APK:-NOT_FOUND}"
+            test -n "$APK"
             adb install -r "$APK"
             adb shell am force-stop com.plymetrix.erp
             adb shell monkey -p com.plymetrix.erp -c android.intent.category.LAUNCHER 1
