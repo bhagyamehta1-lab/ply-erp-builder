@@ -169,8 +169,15 @@ jobs:
             adb wait-for-device
             test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
             adb shell input keyevent 82
-            APK="$GITHUB_WORKSPACE/private-source/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
-            test -f "$APK"
+            echo "Smoke-test working directory: $(pwd)"
+            echo "GitHub workspace: ${GITHUB_WORKSPACE:-unset}"
+            APK="$(find /home/runner/work -type f -path '*/outputs/apk/*/debug/*.apk' -print -quit)"
+            if [ -z "$APK" ]; then
+              echo "No debug APK found under runner workspace"
+              find /home/runner/work -type f -name '*.apk' -print | head -50 || true
+              exit 1
+            fi
+            echo "Using APK: $APK"
             adb install -r "$APK"
             adb shell am force-stop com.plymetrix.erp
             adb shell monkey -p com.plymetrix.erp -c android.intent.category.LAUNCHER 1
