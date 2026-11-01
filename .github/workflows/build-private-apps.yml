@@ -170,11 +170,7 @@ jobs:
             test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
             adb shell input keyevent 82
             APK="$GITHUB_WORKSPACE/private-source/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
-            if [ ! -f "$APK" ]; then
-              echo "Expected debug APK not found: $APK"
-              find "$GITHUB_WORKSPACE/private-source/src-tauri/gen/android/app/build/outputs/apk" -type f -name "*.apk" -print || true
-              exit 1
-            fi
+            test -f "$APK"
             adb install -r "$APK"
             adb shell am force-stop com.plymetrix.erp
             adb shell monkey -p com.plymetrix.erp -c android.intent.category.LAUNCHER 1
