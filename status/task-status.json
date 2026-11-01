@@ -1,0 +1,21 @@
+{
+  "task_id": "PLY-01-BASELINE",
+  "worker_repo": "bhagyamehta1-lab/ply-erp-builder",
+  "module": "Integration controller; Windows/Android build and release smoke",
+  "private_source_sha": null,
+  "status": "Blocked",
+  "blocker": "Private-source test lane requires an approved least-privilege credential and an exact source SHA; do not expose credentials in this public repository.",
+  "tests": {
+    "copied_domain_tests": "not equivalent to private-source verification",
+    "private_source_unit": "not run",
+    "integration": "not run",
+    "end_to_end": "not run"
+  },
+  "acceptance": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "not_tested": 0
+  },
+  "updated_at": "2026-11-01"
+}
