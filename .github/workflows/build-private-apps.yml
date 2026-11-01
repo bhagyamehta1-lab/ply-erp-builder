@@ -169,12 +169,7 @@ jobs:
             adb wait-for-device
             test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
             adb shell input keyevent 82
-            echo "Smoke-test working directory: $(pwd)"
-            echo "GitHub workspace: ${GITHUB_WORKSPACE:-unset}"
-            APK="$(find /home/runner/work -type f -path '*/outputs/apk/*/debug/*.apk' -print -quit)"
-            echo "Using APK: ${APK:-NOT_FOUND}"
-            test -n "$APK"
-            adb install -r "$APK"
+            adb install -r /home/runner/work/ply-erp-builder/ply-erp-builder/private-source/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
             adb shell am force-stop com.plymetrix.erp
             adb shell monkey -p com.plymetrix.erp -c android.intent.category.LAUNCHER 1
             sleep 20
