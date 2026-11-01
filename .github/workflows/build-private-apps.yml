@@ -76,20 +76,20 @@ jobs:
           $bitmap.Save((Join-Path $env:RUNNER_TEMP "windows-smoke.png"))
           $graphics.Dispose(); $bitmap.Dispose()
 
-      - name: Upload Windows smoke screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: PlyMetrix-Windows-Smoke-Screenshot
-          path: ${{ runner.temp }}/windows-smoke.png
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: PlyMetrix-Windows-EXE
-          path: private-source/src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish Windows installer and smoke screenshot to private ERP release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          $installer = Get-ChildItem "private-source/src-tauri/target/release/bundle/nsis" -Filter *.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found for private release" }
+          $screenshot = Join-Path $env:RUNNER_TEMP "windows-smoke.png"
+          if (-not (Test-Path $screenshot)) { throw "Windows smoke screenshot not found" }
+          $sourceSha = (git -C private-source rev-parse HEAD).Trim()
+          $tag = "ci-windows-$env:GITHUB_RUN_ID"
+          gh release create $tag $installer.FullName $screenshot --repo $env:SOURCE_REPOSITORY --title "PlyMetrix Windows build $env:GITHUB_RUN_NUMBER" --notes "Windows installer and smoke screenshot. Built from source commit $sourceSha." --target $sourceSha
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish Windows assets to private ERP release" }
 
   android:
     name: Android debug APK
@@ -178,20 +178,18 @@ jobs:
             ! adb logcat -d -t 3000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep -F 'com.plymetrix.erp'
             adb exec-out screencap -p > "$RUNNER_TEMP/android-smoke.png"
 
-      - name: Upload Android smoke screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: PlyMetrix-Android-Smoke-Screenshot
-          path: ${{ runner.temp }}/android-smoke.png
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: PlyMetrix-Android-APK
-          path: private-source/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish Android APK and smoke screenshot to private ERP release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
+          SOURCE_REPOSITORY: ${{ secrets.SOURCE_REPOSITORY }}
+        run: |
+          APK_PATH="private-source/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
+          test -f "$APK_PATH"
+          test -f "$RUNNER_TEMP/android-smoke.png"
+          SOURCE_SHA="$(git -C private-source rev-parse HEAD)"
+          TAG="ci-android-$GITHUB_RUN_ID"
+          gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/android-smoke.png" --repo "$SOURCE_REPOSITORY" --title "PlyMetrix Android build $GITHUB_RUN_NUMBER" --notes "Android debug APK and emulator smoke screenshot. Built from source commit $SOURCE_SHA." --target "$SOURCE_SHA"
 
   post-smoke-validation:
     name: Post-smoke functional and privacy-safe checks
