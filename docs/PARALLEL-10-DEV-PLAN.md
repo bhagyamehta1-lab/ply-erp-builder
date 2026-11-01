@@ -1,38 +1,40 @@
 # PlyMetrix Parallel-10 Development Plan
 
-Status: proposal / safe coordination scaffold
+Status: coordination scaffold initialized; controlled integration not yet configured
 Date: 2026-11-01
 
 ## Non-negotiable repository boundary
 
 - The private PlyMetrix ERP repository remains the only source of truth for application source code, business data, secrets, release signing material, and production history.
-- Public repositories must contain only approved, non-sensitive task specifications, generic tooling, synthetic fixtures, and independently authored code that is safe to publish.
+- Public builder repositories contain only approved, non-sensitive task specifications, generic tooling, synthetic fixtures, and independently authored code that is safe to publish.
 - Never mirror, fork, push, or paste private ERP source, database files, customer/vendor records, real invoices, credentials, tokens, signing keys, environment files, or private commit history into a public repository.
 - Public-lane work is not integrated automatically. It is reviewed, security-scanned, tested, and selectively ported/merged into a private integration branch.
-- Do not grant public-lane workflows write access to the private repository. Use narrowly scoped, short-lived credentials only in a controlled private integration workflow.
+- Do not grant public-lane workflows write access to the private repository. No PAT or repository secret is required in the public builder repositories.
 
-## Proposed ten work lanes
+## Ten builder repositories and responsibilities
 
-| Lane | Responsibility | Main boundary / deliverable |
+| Builder repository | Lane | Responsibility |
 |---|---|---|
-| 01 | Inventory & Stock | Stock ledger contracts, item/unit rules, reservations-aware availability tests |
-| 02 | Purchase & GRN | Purchase order/receipt workflows, supplier and GRN contracts |
-| 03 | Production & BOM | BOM validation, material issue/consumption, production posting contracts |
-| 04 | Batch Costing & Yield | Batch cost model, actual-vs-planned variance, yield/wastage calculations |
-| 05 | Quality & Grades | QC checks, grade allocation, rejection and return reason catalogues |
-| 06 | Sales & Orders | Orders, reservations, sellable-stock checks, order lifecycle |
-| 07 | Billing, GST & Dispatch | Invoice/dispatch contracts, batch-linked dispatch, statutory validation |
-| 08 | Accounts & Ledger | Financial posting contracts, reversals, reconciliation and auditability |
-| 09 | Reports, Backup & Offline | Reporting/export specifications, backup/restore and offline acceptance tests |
-| 10 | QA, Security & Build | Cross-module test strategy, security checks, Windows/Android build and device validation |
+| ply-erp-builder | 01 | Build & CI coordination; existing private-source build workflow remains here |
+| ply-erp-builder-2 | 02 | Inventory & Stock |
+| ply-erp-builder-3 | 03 | Purchase & GRN |
+| ply-erp-builder-4 | 04 | Production & BOM |
+| ply-erp-builder-5 | 05 | Batch Costing & Yield |
+| ply-erp-builder-6 | 06 | Quality & Grades |
+| ply-erp-builder-7 | 07 | Sales & Orders |
+| ply-erp-builder-8 | 08 | Billing, GST & Dispatch |
+| ply-erp-builder-9 | 09 | Accounts & Ledger |
+| ply-erp-builder-10 | 10 | Reports, Backup, Offline & QA |
+
+The nine newly created empty repositories have received lane-specific README instructions only. Builder 1 already had existing build/CI content; this plan was added there. No application source or credentials were copied to the new repositories.
 
 ## Pilot sequence
 
-Start with three lanes only; expand after the integration contract is proven:
+Start with three module lanes, while builder 1 remains the existing build/CI coordinator:
 
-1. Lane 01 Inventory & Stock
-2. Lane 02 Purchase & GRN
-3. Lane 03 Production & BOM
+1. Builder 2 — Inventory & Stock
+2. Builder 3 — Purchase & GRN
+3. Builder 4 — Production & BOM
 
 Pilot success criteria:
 - All three use the same approved domain/API/schema contracts.
@@ -70,11 +72,13 @@ No lane may independently redefine shared tables, migrations, stock posting rule
 
 ## Parallelism limits and scaling
 
-Ten lanes are ten workstreams, not proof of ten simultaneously running AI agents or tenfold speed. Actual concurrency depends on available workers, compute, API quotas, task independence, and review capacity. Keep concurrency at three during the pilot; move to five after a clean end-to-end integration; enable all ten only after contracts and integration throughput are stable.
+Ten repositories are ten workspaces, not proof of ten simultaneously running AI agents or tenfold speed. Actual concurrency depends on available workers, compute, API quotas, task independence, and review capacity. Keep active implementation concurrency at three during the pilot; move to five after a clean end-to-end integration; enable all ten only after contracts and integration throughput are stable.
 
 ## Current implementation status
 
-This file records a proposed workflow only. It does not create ten GitHub repositories, provision agents/runners, grant repository permissions, configure secrets, or change the private ERP source. Those actions require separately available GitHub administration capabilities and explicit safe configuration.
+The repository list and default branches were checked. The nine new repositories are public and were empty before initialization; each now contains a lane-specific README. Builder 1 already contained existing build/CI material and now also contains this coordination plan.
+
+No PAT, GitHub App, deploy key, repository secret, runner, cross-repository permission, private-source mirroring, or automatic private integration has been configured. Those are intentionally not enabled. This plan does not claim that ten AI workers are running.
 
 ## Initial work-item template
 
