@@ -30,9 +30,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code=$(curl -sS -o "$RUNNER_TEMP/commit.json" -w '%{http_code}' \\
-            -H "Authorization: Bearer $READ_TOKEN" \\
-            -H "Accept: application/vnd.github+json" \\
+          code=$(curl -sS -o "$RUNNER_TEMP/commit.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $READ_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/bhagyamehta1-lab/PLY_ERP/commits/main)
           if [[ "$code" != "200" ]]; then
             echo "Private ERP commit lookup failed (HTTP $code)."
@@ -49,9 +49,9 @@ jobs:
           SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -euo pipefail
-          code=$(curl -sS -o "$RUNNER_TEMP/statuses.json" -w '%{http_code}' \\
-            -H "Authorization: Bearer $STATUS_TOKEN" \\
-            -H "Accept: application/vnd.github+json" \\
+          code=$(curl -sS -o "$RUNNER_TEMP/statuses.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $STATUS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/bhagyamehta1-lab/PLY_ERP/commits/$SHA/statuses")
           if [[ "$code" != "200" ]]; then
             echo "Could not read private commit statuses (HTTP $code)."
@@ -114,14 +114,14 @@ jobs:
                 continue
               fi
             fi
-            payload=$(jq -nc --arg sha "$SHA" --arg repo "$repo" --arg suite "$suite" \\
+            payload=$(jq -nc --arg sha "$SHA" --arg repo "$repo" --arg suite "$suite" \
               '{event_type:"plymetrix-ci",client_payload:{private_repo:"bhagyamehta1-lab/PLY_ERP",commit_sha:$sha,builder_repo:$repo,suite:$suite}}')
-            code=$(curl -sS -o "$RUNNER_TEMP/dispatch-$i.json" -w '%{http_code}' \\
-              -X POST \\
-              -H "Authorization: Bearer $DISPATCH_TOKEN" \\
-              -H "Accept: application/vnd.github+json" \\
-              -H "X-GitHub-Api-Version: 2022-11-28" \\
-              "https://api.github.com/repos/bhagyamehta1-lab/$repo/dispatches" \\
+            code=$(curl -sS -o "$RUNNER_TEMP/dispatch-$i.json" -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer $DISPATCH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/bhagyamehta1-lab/$repo/dispatches" \
               -d "$payload")
             if [[ "$code" != "204" ]]; then
               echo "Dispatch failed for $repo (HTTP $code)."
