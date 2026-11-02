@@ -46,7 +46,7 @@ jobs:
           code=$(curl -sS -o "$RUNNER_TEMP/statuses.json" -w '%{http_code}' \
             -H "Authorization: Bearer $STATUS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/bhagyamehta1-lab/PLY_ERP/commits/$SHA/status")
+            "https://api.github.com/repos/bhagyamehta1-lab/PLY_ERP/commits/$SHA/statuses")
           if [[ "$code" != "200" ]]; then
             echo "Could not read private commit statuses (HTTP $code)."
             exit 1
