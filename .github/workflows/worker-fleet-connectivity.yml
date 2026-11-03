@@ -19,6 +19,8 @@ jobs:
     name: Verify hosted Ubuntu runner and optional private HQ bridge
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      HQ_BRIDGE_PAT: ${{ secrets.HQ_BRIDGE_PAT }}
     steps:
       - name: Checkout public worker configuration
         uses: actions/checkout@v4
@@ -51,7 +53,6 @@ jobs:
       - name: Verify private HQ SAFE_HOLD and write minimal receipt
         if: env.HQ_BRIDGE_PAT != ''
         env:
-          HQ_BRIDGE_PAT: ${{ secrets.HQ_BRIDGE_PAT }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SOURCE_SHA: ${{ github.sha }}
