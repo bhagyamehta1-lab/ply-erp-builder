@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64, datetime, json, os, urllib.error, urllib.request
+          import base64, json, os, re, urllib.request
           repo = "bhagyamehta1-lab/PLY_ERP"
           token = os.environ["HQ_BRIDGE_PAT"]
           headers = {
@@ -85,29 +85,19 @@ jobs:
                   and gate.get("dispatch_enabled") is False
                   and gate.get("state_lock") == "HELD"):
               raise SystemExit("HQ gate is not in the expected fail-closed SAFE_HOLD state.")
-          receipt = {
-              "schema_version": 1,
-              "result": "RUNNER_PROBE_PASSED",
-              "hq_state_read": "SUCCESS",
-              "hq_gate": "SAFE_HOLD",
-              "dispatch_performed": False,
-              "worker_repository": "bhagyamehta1-lab/ply-erp-builder",
-              "run_id": os.environ["RUN_ID"],
-              "run_attempt": os.environ["RUN_ATTEMPT"],
-              "source_sha": os.environ["SOURCE_SHA"],
-              "runner_name": os.environ["RUNNER_NAME"],
-              "runner_os": os.environ["RUNNER_OS"],
-              "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          target_sha = state.get("base_sha")
+          if not isinstance(target_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+              raise SystemExit("HQ base SHA is missing or malformed; status receipt denied.")
+          status_payload = {
+              "state": "success",
+              "context": "enterprise-worker/connectivity-probe",
+              "description": "Public Ubuntu runner probe passed; HQ SAFE_HOLD retained",
+              "target_url": f"https://github.com/bhagyamehta1-lab/ply-erp-builder/actions/runs/{os.environ['RUN_ID']}",
           }
-          path = f"status/worker-receipts/run-{os.environ['RUN_ID']}-attempt-{os.environ['RUN_ATTEMPT']}.json"
-          payload = {
-              "message": f"Worker connectivity receipt for run {os.environ['RUN_ID']}",
-              "content": base64.b64encode((json.dumps(receipt, indent=2) + "\n").encode()).decode(),
-          }
-          url = f"https://api.github.com/repos/{repo}/contents/{path}"
-          request(url, method="PUT", body=payload)
+          status_url = f"https://api.github.com/repos/{repo}/statuses/{target_sha}"
+          request(status_url, method="POST", body=status_payload)
           print("HQ_STATE_READ=PASS")
           print("HQ_SAFE_HOLD_CONFIRMED=PASS")
-          print("HQ_STATUS_RECEIPT_WRITE=PASS")
+          print("HQ_COMMIT_STATUS_WRITE=PASS")
           print("BUILDER_DISPATCHED=NO")
           PY
