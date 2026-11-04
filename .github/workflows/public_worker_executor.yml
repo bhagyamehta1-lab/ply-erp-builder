@@ -78,6 +78,81 @@ jobs:
           set -euo pipefail
           python scripts/ceo_hq_worker.py
 
+      - name: Check out private PLY-0001 source into tmpfs
+        if: github.event_name == 'push'
+        env:
+          PLY_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
+          WORKSPACE: /dev/shm/enterprise_workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PLY_TOKEN"
+          AUTH="$(printf 'x-access-token:%s' "$PLY_TOKEN" | base64 -w0)"
+          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth 50 https://github.com/bhagyamehta1-lab/PLY_ERP.git "$WORKSPACE/PLY_ERP"
+          unset AUTH PLY_TOKEN
+          cd "$WORKSPACE/PLY_ERP"
+          git cat-file -e '47bdac2b13e447bfa5ecbb2033a3281f3815ef84^{commit}'
+          python - <<'PY'
+          import subprocess
+          allowed = {'src/platform/storage/migrations/005_inventory_movements_and_dispatch.sql','src/platform/storage/contracts.ts','src-tauri/src/storage.rs','src-tauri/src/lib.rs','src/components/DashboardSummary.tsx','src/App.tsx'}
+          changed = set(subprocess.check_output(['git','diff','--name-only','47bdac2b13e447bfa5ecbb2033a3281f3815ef84...HEAD'],text=True).splitlines())
+          if not changed or not changed.issubset(allowed): raise SystemExit('PLY-0001 file allowlist validation failed')
+          required = allowed
+          tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD'],text=True).splitlines())
+          if not required.issubset(tracked): raise SystemExit('Required PLY-0001 implementation files missing')
+          print('PLY_ERP_FILE_ALLOWLIST=PASS')
+          print('PRIVATE_SOURCE_CONTENT_IN_LOGS=NO')
+          PY
+          git rev-parse HEAD > "$WORKSPACE/PLY_ERP_COMMIT_SHA"
+
+      - name: Verify migration registration and frontend build
+        if: github.event_name == 'push'
+        working-directory: /dev/shm/enterprise_workspace/PLY_ERP
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '005_inventory_movements_and_dispatch.sql' src-tauri/src/storage.rs
+          grep -q 'let latest = 5i64' src-tauri/src/storage.rs
+          grep -q 'LATEST_SCHEMA_VERSION.*5' src/platform/storage/contracts.ts
+          npm ci --silent
+          npm run build
+
+      - name: Verify SQL migrations and ledger queries
+        if: github.event_name == 'push'
+        working-directory: /dev/shm/enterprise_workspace/PLY_ERP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib, sqlite3
+          root=pathlib.Path('src/platform/storage/migrations'); db=sqlite3.connect(':memory:'); db.execute('PRAGMA foreign_keys=ON')
+          for name in ['001_core_foundation.sql','002_production_work_vouchers.sql','003_flexible_production_masters.sql','004_documentation_organisation_knowledge.sql','005_inventory_movements_and_dispatch.sql']: db.executescript((root/name).read_text())
+          db.execute("INSERT INTO inventory_items(id,item_code,item_name,category_code,base_unit) VALUES ('i1','RM-1','Resin','chemical','kg')")
+          db.executemany("INSERT INTO inventory_movements(id,item_id,movement_date,movement_type,quantity,unit_code,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)", [('m1','i1','2026-11-04','receipt',100,'kg','test','1'),('m2','i1','2026-11-04','production_consumption',12,'kg','test','2'),('m3','i1','2026-11-04','dispatch',8,'kg','test','3')])
+          q=db.execute("SELECT SUM(CASE WHEN movement_type IN ('receipt','production_output','adjustment') THEN quantity WHEN movement_type IN ('issue','production_consumption','dispatch') THEN -quantity ELSE 0 END) FROM inventory_movements").fetchone()[0]
+          assert q==80, q
+          db.execute("INSERT INTO dispatch_orders(id,dispatch_no,dispatch_date,customer_name,status) VALUES ('d1','D-1','2026-11-04','Customer','pending')")
+          assert db.execute("SELECT COUNT(*) FROM dispatch_orders WHERE status='pending'").fetchone()[0]==1
+          print('SQL_MIGRATIONS_001_TO_005=PASS'); print('STOCK_AND_DISPATCH_AGGREGATION=PASS')
+          PY
+
+      - name: Run Rust formatting and native tests
+        if: github.event_name == 'push'
+        working-directory: /dev/shm/enterprise_workspace/PLY_ERP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Publish sanitized verification identity
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PLY_0001_QA=PASS'
+          echo 'PRIVATE_SOURCE_CONTENT_IN_LOGS=NO'
+          echo "VERIFIED_PLY_ERP_COMMIT=$(cat /dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA)"
       - name: Run harmless worker health verification
         shell: bash
         run: |
