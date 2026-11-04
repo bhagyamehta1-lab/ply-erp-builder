@@ -139,7 +139,10 @@ def preflight():
         raise RunnerError("Enterprise alignment DNA is incomplete; refusing to continue.")
 
     orchestrator, _ = get_contents("scripts/autonomous_orchestrator.py", read_token)
-    compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec")
+    try:
+        compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec")
+    except SyntaxError as exc:
+        raise RunnerError("HQ orchestrator syntax validation failed.") from exc
     if "--prepare-shift" not in orchestrator or "--record-qa-heuristic" not in orchestrator:
         raise RunnerError("HQ orchestrator does not expose the required shift-memory interface.")
 
