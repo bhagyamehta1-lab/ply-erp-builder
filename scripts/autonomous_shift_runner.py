@@ -158,37 +158,52 @@ def preflight():
             or any(not isinstance(rule, dict) or not required_heuristic_fields.issubset(rule) for rule in heuristics["rules"])):
         raise RunnerError("Codebase index or learned heuristics schema is invalid.")
 
-    task = next((item for item in backlog.get("requirements", []) if item.get("task_id") == "PLY-0001"), None)
+    active_tasks = [item for item in backlog.get("requirements", [])
+                    if item.get("status") == "IN_PROGRESS" and item.get("dispatch_authorized") is True]
+    task = active_tasks[0] if len(active_tasks) == 1 else None
+    task_id = task.get("task_id") if task else None
     safety = roadmap.get("safety", {})
+    grant = safety.get("task_scoped_build_authorizations", {}).get(task_id, {}) if task_id else {}
+    scoped_build = (
+        grant.get("authorized") is True
+        and grant.get("task_id") == task_id
+        and grant.get("allowed_repository") == PRODUCT
+        and bool(grant.get("allowed_branch"))
+        and bool(task.get("explicit_file_allowlist"))
+    )
+    build_allowed = safety.get("builds_enabled") is True or scoped_build
+    candidate_branch = grant.get("allowed_branch", "main") if task else "main"
     event = os.environ.get("GITHUB_EVENT_NAME", "unknown")
     authorized = False
     state = "BLOCKED_UNKNOWN_STATE"
-    reason = "Required PLY-0001 authorization conditions were not met."
+    reason = "No single approved active task has matching authorization."
 
-    if task is None:
-        state, reason = "BLOCKED_TASK_NOT_FOUND", "PLY-0001 is absent from the live HQ backlog."
-    elif task.get("status") == "COMPLETED":
-        state, reason = "SKIPPED_TASK_COMPLETED", "PLY-0001 is already completed; no product checkout or build is needed."
-    elif safety.get("builds_enabled") is not True:
-        state, reason = "BLOCKED_GLOBAL_BUILD_GATE", "The live roadmap has builds_enabled=false."
+    if len(active_tasks) == 0:
+        state, reason = "BLOCKED_NO_ACTIVE_TASK", "No IN_PROGRESS dispatch-authorized task exists in the HQ backlog."
+    elif len(active_tasks) > 1:
+        state, reason = "BLOCKED_AMBIGUOUS_TASK_SCOPE", "More than one active task is dispatch-authorized."
+    elif not build_allowed:
+        state, reason = "BLOCKED_BUILD_AUTHORIZATION", "Neither the global build gate nor an exact task-scoped build grant authorizes this task."
     elif safety.get("execution_hold") is not False:
         state, reason = "BLOCKED_EXECUTION_HOLD", "The live roadmap execution hold is active."
     elif roadmap.get("status") != "ACTIVE_OPERATIONS" or backlog.get("enterprise_status") != "ACTIVE_OPERATIONS":
         state, reason = "BLOCKED_ENTERPRISE_STATE", "Roadmap and backlog are not both ACTIVE_OPERATIONS."
-    elif task.get("status") != "IN_PROGRESS" or task.get("approval_state") != "APPROVED" or task.get("dispatch_authorized") is not True:
-        state, reason = "BLOCKED_TASK_AUTHORIZATION", "PLY-0001 is not approved, in progress and explicitly dispatch-authorized."
+    elif task.get("approval_state") != "APPROVED" or task.get("dispatch_authorized") is not True:
+        state, reason = "BLOCKED_TASK_AUTHORIZATION", f"{task_id} is not approved and explicitly dispatch-authorized."
     elif event not in ("push", "schedule"):
         state, reason = "SKIPPED_UNSUPPORTED_EVENT", "Only main push and scheduled events may start an autonomous verification."
     else:
         authorized = True
-        state, reason = "AUTHORIZED_VERIFICATION", "Live policy explicitly permits scoped PLY-0001 verification."
+        state, reason = "AUTHORIZED_VERIFICATION", f"Live policy permits scoped verification for {task_id}."
 
     record = {
         "timestamp": now(),
         "event": event,
         "run_id": os.environ.get("GITHUB_RUN_ID"),
         "worker_commit": os.environ.get("GITHUB_SHA"),
-        "task_id": "PLY-0001",
+        "task_id": task_id,
+        "candidate_branch": candidate_branch,
+        "explicit_file_allowlist": task.get("explicit_file_allowlist", []) if task else [],
         "state": state,
         "authorized": authorized,
         "reason": reason,
@@ -198,9 +213,10 @@ def preflight():
         "model_patch_applied": False,
     }
     append_checkpoint(record, write_token)
-    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"])})
+    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"]), "task_id": task_id or "", "candidate_branch": candidate_branch, "baseline_sha": index.get("last_verified_commit", "")})
     print(f"AUTONOMY_POLICY={state}")
-    print(f"PLY_0001_VERIFICATION_AUTHORIZED={'YES' if authorized else 'NO'}")
+    print(f"AUTONOMY_TASK_ID={task_id or 'NONE'}")
+    print(f"AUTONOMY_VERIFICATION_AUTHORIZED={'YES' if authorized else 'NO'}")
     print(f"KAIZEN_RULES_LOADED={len(heuristics['rules'])}")
     print("PRIVATE_SOURCE_CHECKOUT=DEFERRED_UNTIL_POLICY_AUTHORIZATION")
     return 0
@@ -274,7 +290,8 @@ def main():
     try:
         return preflight() if args.mode == "preflight" else checkpoint()
     except (RunnerError, OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"AUTONOMY_RUNNER_ERROR={type(exc).__name__}", file=sys.stderr)
+        safe_message = str(exc).replace("\n", " ")[:400]
+        print(f"AUTONOMY_RUNNER_ERROR={type(exc).__name__}: {safe_message}", file=sys.stderr)
         return 2
 
 
