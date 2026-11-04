@@ -114,7 +114,8 @@ jobs:
           grep -q '005_inventory_movements_and_dispatch.sql' src-tauri/src/storage.rs
           grep -q 'let latest = 5i64' src-tauri/src/storage.rs
           grep -q 'LATEST_SCHEMA_VERSION.*5' src/platform/storage/contracts.ts
-          npm ci --silent
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run build
 
       - name: Verify SQL migrations and ledger queries
