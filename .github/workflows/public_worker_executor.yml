@@ -153,7 +153,9 @@ jobs:
           set -euo pipefail
           cargo fmt --manifest-path src-tauri/Cargo.toml
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          grep -q 'stock_ledger_aggregates_receipts_and_consumption' src-tauri/src/storage.rs
+          grep -q 'dispatch_register_groups_orders_by_status' src-tauri/src/storage.rs
+          cargo test --manifest-path src-tauri/Cargo.toml --lib -- --nocapture
 
       - name: Publish sanitized verification identity
         if: github.event_name == 'push'
