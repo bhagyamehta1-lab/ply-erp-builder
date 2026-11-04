@@ -22,6 +22,7 @@ on:
 permissions:
   contents: read
   actions: read
+  models: read
 
 concurrency:
   group: public-worker-executor
@@ -61,13 +62,16 @@ jobs:
           python --version
 
       - name: Poll HQ and synchronize CEO inbox
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync')
+        if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
         env:
           WORKSPACE: /dev/shm/enterprise_workspace
           CEO_WORKER_MODE: ceo_inbox_sync
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN || secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           HQ_TO_PLY_ERP_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HQ_ENABLE_MODEL_BRAIN: "true"
+          GH_MODELS_MODEL: "openai/gpt-4o-mini"
         shell: bash
         run: |
           set -euo pipefail
