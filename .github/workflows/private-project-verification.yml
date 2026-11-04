@@ -1,5 +1,6 @@
 name: Private PLY ERP Verification
 # Trigger a fresh sanitized build for the current private PLY_ERP main revision.
+# This run is the EMP-04 acceptance gate; it never publishes private source or build logs.
 
 on:
   push:
