@@ -183,6 +183,8 @@ def preflight():
         state, reason = "BLOCKED_NO_ACTIVE_TASK", "No IN_PROGRESS dispatch-authorized task exists in the HQ backlog."
     elif len(active_tasks) > 1:
         state, reason = "BLOCKED_AMBIGUOUS_TASK_SCOPE", "More than one active task is dispatch-authorized."
+    elif index.get("last_verified_task_id") == task_id and index.get("last_verified_commit"):
+        state, reason = "SKIPPED_TASK_ALREADY_VERIFIED", f"{task_id} already has a verified product commit in the codebase index."
     elif not build_allowed:
         state, reason = "BLOCKED_BUILD_AUTHORIZATION", "Neither the global build gate nor an exact task-scoped build grant authorizes this task."
     elif safety.get("execution_hold") is not False:
@@ -270,6 +272,7 @@ def checkpoint():
         index["last_verified_run_id"] = int(run_id) if run_id and run_id.isdigit() else None
         index["last_verified_runner_id"] = runner_id
         index["last_verified_at"] = now()
+        index["last_verified_task_id"] = os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN")
         product_root = pathlib.Path("/dev/shm/enterprise_workspace/PLY_ERP")
         if product_root.is_dir():
             tracked = subprocess.check_output(
