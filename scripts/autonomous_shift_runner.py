@@ -11,6 +11,7 @@ import base64
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -252,7 +253,7 @@ def checkpoint():
         "event": os.environ.get("GITHUB_EVENT_NAME"),
         "run_id": run_id,
         "worker_commit": os.environ.get("GITHUB_SHA"),
-        "task_id": "PLY-0001",
+        "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN"),
         "state": "VERIFIED_PASS" if passed else "VERIFICATION_FAILED",
         "authorized": authorized,
         "product_commit": source_sha,
@@ -269,6 +270,40 @@ def checkpoint():
         index["last_verified_run_id"] = int(run_id) if run_id and run_id.isdigit() else None
         index["last_verified_runner_id"] = runner_id
         index["last_verified_at"] = now()
+        product_root = pathlib.Path("/dev/shm/enterprise_workspace/PLY_ERP")
+        if product_root.is_dir():
+            tracked = subprocess.check_output(
+                ["git", "-C", str(product_root), "ls-tree", "-r", "HEAD"],
+                text=True,
+            ).splitlines()
+            blob_by_path = {}
+            for line in tracked:
+                metadata, path = line.split("\t", 1)
+                blob_by_path[path] = metadata.split()[2]
+            paths = [
+                "src/platform/storage/contracts.ts",
+                "src/platform/storage/migrations/005_inventory_movements_and_dispatch.sql",
+                "src-tauri/src/storage.rs",
+                "src-tauri/src/lib.rs",
+                "src/components/DashboardSummary.tsx",
+                "src/components/InventoryDispatchManager.tsx",
+                "src/App.tsx",
+                "src/styles.css",
+            ]
+            index["indexed_files"] = [
+                {"path": path, "blob_sha": blob_by_path[path]}
+                for path in paths if path in blob_by_path
+            ]
+            index["tauri_commands"] = [
+                {"name": name, "source": "src-tauri/src/lib.rs"}
+                for name in (
+                    "initialize_local_storage", "check_local_storage_integrity",
+                    "get_dashboard_summary", "post_production_voucher",
+                    "record_inventory_movement", "create_dispatch_order",
+                    "update_dispatch_order_status", "list_inventory_item_options",
+                    "list_dispatch_orders",
+                )
+            ]
         put_contents(INDEX_PATH, index, token, sha, "index: refresh codebase cache after green verification")
 
         candidate = os.environ.get("QA_HEURISTIC_JSON", "")
@@ -278,6 +313,7 @@ def checkpoint():
                 raise RunnerError("A QA heuristic may be learned only when its evidence names this green run.")
             append_verified_heuristic(rule, token)
 
+    print("AUTONOMY_TASK_ID=" + os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN"))
     print("AUTONOMY_CHECKPOINT=" + ("PASS" if passed else "FAIL"))
     print("PRIVATE_SOURCE_CONTENT_IN_LOGS=NO")
     return 0 if passed else 1
