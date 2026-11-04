@@ -78,7 +78,7 @@ jobs:
           python scripts/autonomous_shift_runner.py preflight
 
       - name: Poll HQ and synchronize CEO inbox
-        if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
+        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync')
         env:
           WORKSPACE: /dev/shm/enterprise_workspace
           CEO_WORKER_MODE: ceo_inbox_sync
@@ -93,29 +93,36 @@ jobs:
           set -euo pipefail
           python scripts/ceo_hq_worker.py
 
-      - name: Check out private PLY-0001 source into tmpfs
+      - name: Check out scoped private PLY ERP candidate into tmpfs
         id: private_checkout
         if: steps.autonomy.outputs.authorized == 'true'
         env:
           PLY_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
           WORKSPACE: /dev/shm/enterprise_workspace
+          CANDIDATE_BRANCH: ${{ steps.autonomy.outputs.candidate_branch }}
+          BASELINE_SHA: ${{ steps.autonomy.outputs.baseline_sha }}
+          TASK_ID: ${{ steps.autonomy.outputs.task_id }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$PLY_TOKEN"
           AUTH="$(printf 'x-access-token:%s' "$PLY_TOKEN" | base64 -w0)"
-          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth 50 https://github.com/bhagyamehta1-lab/PLY_ERP.git "$WORKSPACE/PLY_ERP"
+          test -n "$CANDIDATE_BRANCH"
+          test -n "$BASELINE_SHA"
+          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth 50 --branch "$CANDIDATE_BRANCH" https://github.com/bhagyamehta1-lab/PLY_ERP.git "$WORKSPACE/PLY_ERP"
           unset AUTH PLY_TOKEN
           cd "$WORKSPACE/PLY_ERP"
-          git cat-file -e '47bdac2b13e447bfa5ecbb2033a3281f3815ef84^{commit}'
+          git cat-file -e "$BASELINE_SHA^{commit}"
           python - <<'PY'
-          import subprocess
-          allowed = {'src/platform/storage/migrations/005_inventory_movements_and_dispatch.sql','src/platform/storage/contracts.ts','src-tauri/src/storage.rs','src-tauri/src/lib.rs','src/components/DashboardSummary.tsx','src/App.tsx'}
-          changed = set(subprocess.check_output(['git','diff','--name-only','47bdac2b13e447bfa5ecbb2033a3281f3815ef84...HEAD'],text=True).splitlines())
-          if not changed or not changed.issubset(allowed): raise SystemExit('PLY-0001 file allowlist validation failed')
+          import os, subprocess
+          task = os.environ["TASK_ID"]
+          if task != "PLY-0002": raise SystemExit("Unsupported scoped task ID")
+          allowed = {'src/platform/storage/contracts.ts','src-tauri/src/storage.rs','src-tauri/src/lib.rs','src/components/DashboardSummary.tsx','src/App.tsx','src/styles.css','src/components/InventoryDispatchManager.tsx'}
+          changed = set(subprocess.check_output(['git','diff','--name-only',os.environ["BASELINE_SHA"]+'...HEAD'],text=True).splitlines())
+          if not changed or not changed.issubset(allowed): raise SystemExit('PLY-0002 file allowlist validation failed')
           required = allowed
           tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD'],text=True).splitlines())
-          if not required.issubset(tracked): raise SystemExit('Required PLY-0001 implementation files missing')
+          if not required.issubset(tracked): raise SystemExit('Required PLY-0002 implementation files missing')
           print('PLY_ERP_FILE_ALLOWLIST=PASS')
           print('PRIVATE_SOURCE_CONTENT_IN_LOGS=NO')
           PY
@@ -173,8 +180,9 @@ jobs:
           set -euo pipefail
           cargo fmt --manifest-path src-tauri/Cargo.toml
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-          grep -q 'stock_ledger_aggregates_receipts_and_consumption' src-tauri/src/storage.rs
-          grep -q 'dispatch_register_groups_orders_by_status' src-tauri/src/storage.rs
+          grep -q 'stock_movement_insertion_records_receipt_and_issue' src-tauri/src/storage.rs
+          grep -q 'negative_stock_is_rejected_without_inserting_issue' src-tauri/src/storage.rs
+          grep -q 'dispatch_status_transitions_pending_to_dispatched_once' src-tauri/src/storage.rs
           cargo test --manifest-path src-tauri/Cargo.toml --lib -- --nocapture
 
       - name: Publish sanitized verification identity
@@ -183,7 +191,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo 'PLY_0001_QA=PASS'
+          echo 'PLY_0002_QA=PASS'
           echo 'PRIVATE_SOURCE_CONTENT_IN_LOGS=NO'
           echo "VERIFIED_PLY_ERP_COMMIT=$(cat /dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA)"
       - name: Run harmless worker health verification
@@ -240,6 +248,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
           AUTONOMY_AUTHORIZED: ${{ steps.autonomy.outputs.authorized || 'false' }}
+          AUTONOMY_TASK_ID: ${{ steps.autonomy.outputs.task_id || '' }}
           PRIVATE_CHECKOUT_OUTCOME: ${{ steps.private_checkout.outcome || 'skipped' }}
           FRONTEND_OUTCOME: ${{ steps.frontend.outcome || 'skipped' }}
           SQL_OUTCOME: ${{ steps.sql.outcome || 'skipped' }}
