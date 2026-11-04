@@ -172,15 +172,28 @@ def main() -> int:
     except json.JSONDecodeError:
         raise SafeFailure("HQ state JSON could not be parsed.") from None
 
+    status = roadmap.get("system_status", roadmap.get("status"))
     safe_hold = (
-        roadmap.get("status") == "SAFE_HOLD"
+        status == "SAFE_HOLD"
         and roadmap.get("safety", {}).get("execution_hold") is True
         and roadmap.get("safety", {}).get("dispatch_enabled") is False
         and roadmap.get("bridge", {}).get("dispatch_enabled") is False
         and backlog.get("enterprise_status") == "SAFE_HOLD"
     )
-    if not safe_hold:
-        raise SafeFailure("HQ state is not in the expected SAFE_HOLD configuration; inbox processing stopped.")
+    authorized = [item for item in backlog.get("requirements", []) if item.get("dispatch_authorized") is True]
+    active_operations = (
+        status == "ACTIVE_OPERATIONS"
+        and roadmap.get("safety", {}).get("execution_hold") is False
+        and roadmap.get("safety", {}).get("dispatch_enabled") is True
+        and roadmap.get("bridge", {}).get("dispatch_enabled") is True
+        and backlog.get("enterprise_status") == "ACTIVE_OPERATIONS"
+        and len(authorized) == 1
+        and authorized[0].get("task_id") == "PLY-0001"
+        and authorized[0].get("approval_state") == "APPROVED"
+        and authorized[0].get("status") == "IN_PROGRESS"
+    )
+    if not (safe_hold or active_operations):
+        raise SafeFailure("HQ state failed SAFE_HOLD/ACTIVE_OPERATIONS scope validation; inbox processing stopped.")
 
     # All downloaded private state and orchestration code is confined to tmpfs.
     files = {
@@ -241,6 +254,12 @@ def main() -> int:
                 }
                 if PLY_READ_TOKEN:
                     child_env["HQ_TO_PLY_ERP_TOKEN"] = PLY_READ_TOKEN
+                if os.environ.get("GITHUB_TOKEN"):
+                    child_env["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
+                if os.environ.get("HQ_ENABLE_MODEL_BRAIN"):
+                    child_env["HQ_ENABLE_MODEL_BRAIN"] = os.environ["HQ_ENABLE_MODEL_BRAIN"]
+                if os.environ.get("GH_MODELS_MODEL"):
+                    child_env["GH_MODELS_MODEL"] = os.environ["GH_MODELS_MODEL"]
                 try:
                     result = subprocess.run(
                         [sys.executable, str(WORKSPACE / "scripts/autonomous_orchestrator.py"),
@@ -268,10 +287,11 @@ def main() -> int:
                     if inquiries:
                         inquiries[-1]["source_issue_number"] = number
                         inquiries[-1]["source_issue_updated_at"] = updated_at
-                    backlog["enterprise_status"] = "SAFE_HOLD"
+                    enterprise_state = "ACTIVE_OPERATIONS" if active_operations else "SAFE_HOLD"
+                    backlog["enterprise_status"] = enterprise_state
                     new_backlog = json.dumps(backlog, ensure_ascii=False, indent=2) + "\n"
                     put_file("projects/ply_erp_backlog.json", new_backlog,
-                             f"CEO inbox command #{number} ({kind}) — SAFE_HOLD", WRITE_TOKEN)
+                             f"CEO inbox command #{number} ({kind}) — {enterprise_state}", WRITE_TOKEN)
                     (WORKSPACE / "projects/ply_erp_backlog.json").write_text(new_backlog, encoding="utf-8")
                     commands_processed += 1
 
@@ -280,34 +300,35 @@ def main() -> int:
                         "source_issue_number": number,
                         "source_issue_updated_at": updated_at,
                         "worker": "bhagyamehta1-lab/ply-erp-builder",
-                        "result": "RECORDED_UNDER_SAFE_HOLD",
+                        "result": "RECORDED_UNDER_ACTIVE_OPERATIONS" if active_operations else "RECORDED_UNDER_SAFE_HOLD",
                         "timestamp": utc_now(),
                     })
                     audit["timestamp"] = utc_now()
-                    audit["enterprise_status"] = "SAFE_HOLD"
+                    audit["enterprise_status"] = enterprise_state
                     audit.setdefault("worker", {})["last_inbox_sync"] = utc_now()
-                    audit["worker"]["last_inbox_sync_result"] = "SAFE_HOLD_READ_AND_BACKLOG_WRITE"
+                    audit["worker"]["last_inbox_sync_result"] = "ACTIVE_OPERATIONS_SCOPED_READ_AND_BACKLOG_WRITE" if active_operations else "SAFE_HOLD_READ_AND_BACKLOG_WRITE"
                     audit["safety"] = {
-                        "safe_hold": True,
-                        "execution_hold": True,
-                        "dispatch_enabled": False,
-                        "product_task_execution": False,
+                        "safe_hold": not active_operations,
+                        "execution_hold": not active_operations,
+                        "dispatch_enabled": active_operations,
+                        "product_task_execution": active_operations,
                     }
                     put_file("state/ceo_command_audit.json",
                              json.dumps(audit, ensure_ascii=False, indent=2) + "\n",
                              f"Audit CEO inbox command #{number}", WRITE_TOKEN)
 
             # Issue comments are private to the Enterprise-HQ repository.
+            policy_note = ("ACTIVE_OPERATIONS is scoped to PLY-0001 only; this inbox sync did not dispatch product code." if active_operations else "SAFE_HOLD remains active. No PLY_ERP task was dispatched.")
             comment_body = (
                 f"CEO Command Desk result\n\n{result_text}\n\n"
-                f"SAFE_HOLD remains active. No PLY_ERP task was dispatched.\n\n{marker_text}"
+                f"{policy_note}\n\n{marker_text}"
             )
             post_issue_comment(number, comment_body, WRITE_TOKEN)
             comments_posted += 1
 
     print("HQ_READ_AUTH=PASS")
     print("HQ_REPOSITORY_IDENTITY=PRIVATE_ENTERPRISE_HQ_CONFIRMED")
-    print("HQ_POLICY=SAFE_HOLD")
+    print("HQ_POLICY=" + ("ACTIVE_OPERATIONS_PLY_0001_SCOPED" if active_operations else "SAFE_HOLD"))
     print(f"OPEN_ISSUES_COUNT={len(issues)}")
     print(f"OWNER_AUTHORED_OPEN_ISSUES_COUNT={len(owner_issues)}")
     print(f"SUPPORTED_COMMANDS_PROCESSED={commands_processed}")
