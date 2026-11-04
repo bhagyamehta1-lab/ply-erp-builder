@@ -60,7 +60,7 @@ jobs:
           python --version
 
       - name: Poll HQ and synchronize CEO inbox
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[CEO-POLL]'))
+        if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
         env:
           WORKSPACE: /dev/shm/enterprise_workspace
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
