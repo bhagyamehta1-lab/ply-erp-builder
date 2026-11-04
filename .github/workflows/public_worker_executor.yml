@@ -15,6 +15,7 @@ on:
   repository_dispatch:
     types: [enterprise_task]
   push:
+    branches: [main]
   schedule:
     - cron: "*/15 * * * *"
 
@@ -63,7 +64,8 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
         env:
           WORKSPACE: /dev/shm/enterprise_workspace
-          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
+          CEO_WORKER_MODE: ceo_inbox_sync
+          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN || secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           HQ_TO_PLY_ERP_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
         shell: bash
