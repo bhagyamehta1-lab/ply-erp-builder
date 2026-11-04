@@ -1,0 +1,1 @@
+The worker main branch uses DNA-first task-scoped preflight. PLY-0002 verification is restricted to the candidate branch and exact seven-file allowlist documented in task_scoped_verification.md. Global builds, releases and deployments remain disabled except for the explicit task-scoped CI authorization.
