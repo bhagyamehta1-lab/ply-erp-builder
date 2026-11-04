@@ -172,6 +172,11 @@ def main() -> int:
     except json.JSONDecodeError:
         raise SafeFailure("HQ state JSON could not be parsed.") from None
 
+    try:
+        compile(orchestrator_text, "autonomous_orchestrator.py", "exec")
+    except SyntaxError:
+        raise SafeFailure("HQ orchestrator syntax validation failed; details suppressed.") from None
+
     status = roadmap.get("system_status", roadmap.get("status"))
     safe_hold = (
         status == "SAFE_HOLD"
