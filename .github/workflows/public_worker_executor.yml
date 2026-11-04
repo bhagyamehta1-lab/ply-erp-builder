@@ -1,4 +1,5 @@
 name: Public Worker Executor
+# Optional GitHub Models advisory is scoped to sanitized HQ metadata; deterministic policy remains authoritative.
 
 on:
   workflow_dispatch:
