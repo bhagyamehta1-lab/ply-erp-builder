@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Refuse task execution while enterprise is held
-        if: github.event_name == 'repository_dispatch' || inputs.mode == 'execute_task'
+        if: (github.event_name == 'repository_dispatch' && github.event.client_payload.mode != 'smoke_test' && github.event.client_payload.mode != 'health_check') || inputs.mode == 'execute_task'
         run: |
           echo "::error::SAFE_HOLD — worker accepts smoke/health checks only; project task execution is disabled."
           echo "No private project source was fetched and no task was dispatched."
