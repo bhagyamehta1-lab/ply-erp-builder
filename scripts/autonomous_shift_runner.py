@@ -245,7 +245,10 @@ def checkpoint():
 
         candidate = os.environ.get("QA_HEURISTIC_JSON", "")
         if candidate:
-            append_verified_heuristic(json.loads(candidate), token)
+            rule = json.loads(candidate)
+            if not isinstance(rule, dict) or rule.get("verified_in_run") != str(run_id):
+                raise RunnerError("A QA heuristic may be learned only when its evidence names this green run.")
+            append_verified_heuristic(rule, token)
 
     print("AUTONOMY_CHECKPOINT=" + ("PASS" if passed else "FAIL"))
     print("PRIVATE_SOURCE_CONTENT_IN_LOGS=NO")
