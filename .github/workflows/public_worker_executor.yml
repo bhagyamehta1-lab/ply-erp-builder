@@ -62,6 +62,21 @@ jobs:
           echo "WORKSPACE=/dev/shm/enterprise_workspace" >> "$GITHUB_ENV"
           python --version
 
+      - name: Load alignment DNA and enforce autonomous shift policy
+        id: autonomy
+        if: always()
+        env:
+          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN || secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/autonomous_shift_runner.py
+          python scripts/autonomous_shift_runner.py preflight
+
       - name: Poll HQ and synchronize CEO inbox
         if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
         env:
@@ -79,7 +94,8 @@ jobs:
           python scripts/ceo_hq_worker.py
 
       - name: Check out private PLY-0001 source into tmpfs
-        if: github.event_name == 'push'
+        id: private_checkout
+        if: steps.autonomy.outputs.authorized == 'true'
         env:
           PLY_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
           WORKSPACE: /dev/shm/enterprise_workspace
@@ -106,7 +122,8 @@ jobs:
           git rev-parse HEAD > "$WORKSPACE/PLY_ERP_COMMIT_SHA"
 
       - name: Verify migration registration and frontend build
-        if: github.event_name == 'push'
+        id: frontend
+        if: steps.autonomy.outputs.authorized == 'true'
         working-directory: /dev/shm/enterprise_workspace/PLY_ERP
         shell: bash
         run: |
@@ -119,7 +136,8 @@ jobs:
           npm run build
 
       - name: Verify SQL migrations and ledger queries
-        if: github.event_name == 'push'
+        id: sql
+        if: steps.autonomy.outputs.authorized == 'true'
         working-directory: /dev/shm/enterprise_workspace/PLY_ERP
         shell: bash
         run: |
@@ -138,7 +156,8 @@ jobs:
           PY
 
       - name: Install native Linux build prerequisites
-        if: github.event_name == 'push'
+        id: native_deps
+        if: steps.autonomy.outputs.authorized == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -146,7 +165,8 @@ jobs:
           sudo apt-get install -y -qq libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Run Rust formatting and native tests
-        if: github.event_name == 'push'
+        id: rust
+        if: steps.autonomy.outputs.authorized == 'true'
         working-directory: /dev/shm/enterprise_workspace/PLY_ERP
         shell: bash
         run: |
@@ -158,7 +178,8 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --lib -- --nocapture
 
       - name: Publish sanitized verification identity
-        if: github.event_name == 'push'
+        id: publish_identity
+        if: steps.autonomy.outputs.authorized == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -184,6 +205,8 @@ jobs:
           PY
 
       - name: Confirm a non-zero GitHub runner ID
+        id: runner_identity
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
@@ -207,6 +230,27 @@ jobs:
           print(f"RUNNER_ID={current['runner_id']}")
           print(f"RUNNER_NAME={current.get('runner_name', 'unreported')}")
           PY
+
+      - name: Write sanitized QA checkpoint to Enterprise-HQ
+        if: always() && steps.autonomy.outputs.authorized == 'true'
+        env:
+          ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+          AUTONOMY_AUTHORIZED: ${{ steps.autonomy.outputs.authorized || 'false' }}
+          PRIVATE_CHECKOUT_OUTCOME: ${{ steps.private_checkout.outcome || 'skipped' }}
+          FRONTEND_OUTCOME: ${{ steps.frontend.outcome || 'skipped' }}
+          SQL_OUTCOME: ${{ steps.sql.outcome || 'skipped' }}
+          NATIVE_DEPS_OUTCOME: ${{ steps.native_deps.outcome || 'skipped' }}
+          RUST_OUTCOME: ${{ steps.rust.outcome || 'skipped' }}
+          PUBLISH_OUTCOME: ${{ steps.publish_identity.outcome || 'skipped' }}
+          RUNNER_ID_OUTCOME: ${{ steps.runner_identity.outcome || 'skipped' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/autonomous_shift_runner.py checkpoint
 
       - name: Wipe shared-memory workspace
         if: always()
