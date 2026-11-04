@@ -138,12 +138,21 @@ def preflight():
     if "## Session bootstrap" not in dna or "## Five behavioral gaps" not in dna:
         raise RunnerError("Enterprise alignment DNA is incomplete; refusing to continue.")
 
+    orchestrator, _ = get_contents("scripts/autonomous_orchestrator.py", read_token)
+    compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec")
+    if "--prepare-shift" not in orchestrator or "--record-qa-heuristic" not in orchestrator:
+        raise RunnerError("HQ orchestrator does not expose the required shift-memory interface.")
+
     index, _ = get_json(INDEX_PATH, read_token)
     heuristics, _ = get_json(HEURISTICS_PATH, read_token)
     roadmap, _ = get_json("state/enterprise_roadmap.json", read_token)
     backlog, _ = get_json("projects/ply_erp_backlog.json", read_token)
 
-    if not isinstance(index, dict) or not isinstance(heuristics.get("rules"), list):
+    required_heuristic_fields = {"id", "trigger_pattern", "root_cause", "mandatory_fix", "verified_in_run"}
+    if (not isinstance(index, dict) or not index.get("last_verified_commit")
+            or index.get("storage_schema_version") != 5
+            or not isinstance(heuristics, dict) or not isinstance(heuristics.get("rules"), list)
+            or any(not isinstance(rule, dict) or not required_heuristic_fields.issubset(rule) for rule in heuristics["rules"])):
         raise RunnerError("Codebase index or learned heuristics schema is invalid.")
 
     task = next((item for item in backlog.get("requirements", []) if item.get("task_id") == "PLY-0001"), None)
