@@ -143,7 +143,7 @@ def preflight():
     try:
         compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec")
     except SyntaxError as exc:
-        raise RunnerError("HQ orchestrator syntax validation failed.") from exc
+        raise RunnerError(f"HQ orchestrator syntax validation failed at line {exc.lineno}: {exc.msg}.") from exc
     if "--prepare-shift" not in orchestrator or "--record-qa-heuristic" not in orchestrator:
         raise RunnerError("HQ orchestrator does not expose the required shift-memory interface.")
 
