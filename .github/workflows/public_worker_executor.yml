@@ -143,6 +143,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cargo fmt --manifest-path src-tauri/Cargo.toml
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
           cargo test --manifest-path src-tauri/Cargo.toml --lib
 
