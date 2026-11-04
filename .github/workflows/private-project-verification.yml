@@ -1,0 +1,89 @@
+name: Private PLY ERP Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/private-project-verification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-ply-erp-verification
+  cancel-in-progress: false
+
+jobs:
+  verify-private-project:
+    name: Verify private ERP in shared-memory workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Prepare isolated shared-memory workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 /dev/shm/enterprise_workspace
+          echo "WORKSPACE=/dev/shm/enterprise_workspace" >> "$GITHUB_ENV"
+
+      - name: Check out public worker harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out private PLY ERP source
+        uses: actions/checkout@v4
+        with:
+          repository: bhagyamehta1-lab/PLY_ERP
+          ref: main
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: private-source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Move private source into shared-memory workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv private-source "$WORKSPACE/ply-erp-source"
+          test -f "$WORKSPACE/ply-erp-source/package.json"
+          SOURCE_SHA="$(git -C "$WORKSPACE/ply-erp-source" rev-parse HEAD)"
+          echo "PRIVATE_SOURCE_SHA=$SOURCE_SHA"
+          echo "PRIVATE_SOURCE_WORKSPACE=PASS"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies without exposing source logs
+        working-directory: /dev/shm/enterprise_workspace/ply-erp-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund --silent > "$WORKSPACE/npm-install.log" 2>&1
+
+      - name: Run private frontend typecheck and production bundle
+        working-directory: /dev/shm/enterprise_workspace/ply-erp-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm run build > "$WORKSPACE/private-build.log" 2>&1; then
+            echo "PRIVATE_FRONTEND_BUILD=PASS"
+            echo "PRIVATE_SOURCE_CONTENT_IN_LOGS=NO"
+          else
+            TS_ERRORS="$(grep -Ec 'error TS[0-9]+' "$WORKSPACE/private-build.log" || true)"
+            echo "PRIVATE_FRONTEND_BUILD=FAIL"
+            echo "TYPESCRIPT_ERROR_COUNT=$TS_ERRORS"
+            echo "PRIVATE_SOURCE_CONTENT_IN_LOGS=NO"
+            exit 1
+          fi
+
+      - name: Wipe private source and shared-memory workspace
+        if: always()
+        shell: bash
+        run: |
+          rm -rf /dev/shm/enterprise_workspace
+          rm -rf private-source
+          test ! -e /dev/shm/enterprise_workspace
+          echo "PRIVATE_WORKSPACE_CLEANUP=PASS"
