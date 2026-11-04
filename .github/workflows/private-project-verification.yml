@@ -1,4 +1,5 @@
 name: Private PLY ERP Verification
+# Trigger a fresh sanitized build for the current private PLY_ERP main revision.
 
 on:
   push:
