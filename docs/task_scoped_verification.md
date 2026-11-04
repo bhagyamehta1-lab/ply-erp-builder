@@ -10,3 +10,5 @@ For PLY-0002, the worker requires all of the following live facts:
 - Frontend build, SQL migrations, Rust formatting and unit tests, positive runner identity, sanitized logging, and tmpfs cleanup pass before completion is recorded.
 
 The global `builds_enabled` flag remains false; this grant is task-specific. Releases and deployments remain disabled. A task is never marked complete from a worker health check or a failed/skipped preflight.
+
+A failed QA attempt remains recorded as a failed checkpoint; apply an allowlisted fix on the private candidate branch, then trigger a fresh public-worker push so the new exact candidate SHA is rechecked.
