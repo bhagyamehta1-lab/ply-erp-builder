@@ -215,9 +215,7 @@ def main() -> int:
         and roadmap.get("bridge", {}).get("dispatch_enabled") is True
         and backlog.get("enterprise_status") == "ACTIVE_OPERATIONS"
     )
-    if safe_hold:
-        raise SafeFailure("CEO audit hold disables inbox synchronization.", "SAFE_HOLD")
-    if not active_operations:
+    if not active_operations and not safe_hold:
         raise SafeFailure("HQ state failed master-audit reconciliation.", "STATE_RECONCILIATION_REQUIRED")
 
     # All downloaded private state and orchestration code is confined to tmpfs.
@@ -260,6 +258,17 @@ def main() -> int:
         print("CEO_INBOX_DIAGNOSTIC=QUEUE_PRESENT")
 
     processed_legacy = legacy_processed_issue_ids(audit)
+    if safe_hold:
+        pending = [issue for issue in owner_issues
+                   if command_kind(str(issue.get("body") or ""))
+                   and int(issue.get("number", 0)) not in processed_legacy]
+        state = "SYNC_OK_NO_NEW_DIRECTIVES" if not pending else "SYNC_OK_HOLD_PENDING_DIRECTIVES"
+        print("CEO_INBOX_SYNC_STATE=" + state)
+        print("CEO_INBOX_SYNC_MODE=READ_ONLY_SAFE_HOLD")
+        print("CEO_INBOX_PENDING_DIRECTIVE_COUNT=" + str(len(pending)))
+        print("CEO_INBOX_MUTATIONS=0")
+        print("CEO_INBOX_SECRET_DIAGNOSTICS=SANITIZED")
+        return 0
     commands_processed = 0
     comments_posted = 0
     duplicates_skipped = 0
