@@ -359,6 +359,8 @@ def checkpoint():
                 blob_by_path[path] = metadata.split()[2]
             paths = [
                 "src/platform/storage/contracts.ts",
+                "src/platform/storage/migrations/registry.ts",
+                "src/platform/storage/migrations/003_flexible_production_masters.sql",
                 "src/platform/storage/migrations/005_inventory_movements_and_dispatch.sql",
                 "src-tauri/src/storage.rs",
                 "src-tauri/src/lib.rs",
@@ -378,7 +380,12 @@ def checkpoint():
                     "get_dashboard_summary", "post_production_voucher",
                     "record_inventory_movement", "create_dispatch_order",
                     "update_dispatch_order_status", "list_inventory_item_options",
-                    "list_dispatch_orders",
+                    "list_dispatch_orders", "list_production_processes",
+                    "save_production_process", "set_production_process_active",
+                    "list_inventory_items", "save_inventory_item",
+                    "set_inventory_item_active", "list_process_material_requirements",
+                    "save_process_material_requirement", "replace_process_material_requirements",
+                    "delete_process_material_requirement",
                 )
             ]
         put_index_with_retry(index, token, sha, "index: refresh codebase cache after green verification")
