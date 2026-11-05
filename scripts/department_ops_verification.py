@@ -4,7 +4,7 @@ import base64,json,os,urllib.parse,urllib.request
 REPO="bhagyamehta1-lab/Enterprise-HQ"; API="https://api.github.com"
 READ=os.environ.get("ENTERPRISE_HQ_READ_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN","")
 WRITE=os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN","")
-RUN=os.environ.get("GITHUB_RUN_ID",""); RUNNER=os.environ.get("RUNNER_ID","")
+RUN=os.environ.get("GITHUB_RUN_ID",""); RUNNER=os.environ.get("RUNNER_ID",""); GH_TOKEN=os.environ.get("GITHUB_TOKEN","")
 def request(method,path,token,payload=None):
     data=None if payload is None else json.dumps(payload).encode()
     req=urllib.request.Request(API+path,data=data,method=method,headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
@@ -21,7 +21,7 @@ def put(path,obj,message):
     request("PUT",f"/repos/{REPO}/contents/{urllib.parse.quote(path,safe='/')}",WRITE,payload)
 def main():
     if not READ or not WRITE: raise SystemExit("DEPARTMENT_OPS=BLOCKED_CREDENTIAL_UNAVAILABLE")
-    names=["state/ceo_command_audit.json","employees/department_roster.json","projects/ply_erp_backlog.json","state/autonomous_shift_checkpoints.json","state/learned_heuristics.json","state/codebase_index.json","finance_and_resource_ledger.json","legal_and_compliance_registry.json","customer_and_delivery_operations.json","human_accountability_charter.json","department_workflow_bindings.json"]
+    if not RUNNER and GH_TOKEN and RUN.isdigit():\n        jobs=request("GET",f"/repos/bhagyamehta1-lab/ply-erp-builder/actions/runs/{RUN}/jobs?per_page=100",GH_TOKEN).get("jobs",[])\n        current=next((j for j in jobs if j.get("name")=="Public CEO command and worker engine"),None)\n        RUNNER=str((current or {}).get("runner_id") or "")\n    names=["state/ceo_command_audit.json","employees/department_roster.json","projects/ply_erp_backlog.json","state/autonomous_shift_checkpoints.json","state/learned_heuristics.json","state/codebase_index.json","finance_and_resource_ledger.json","legal_and_compliance_registry.json","customer_and_delivery_operations.json","human_accountability_charter.json","department_workflow_bindings.json"]
     d={p:get(p)[0] for p in names}; audit=d[names[0]]; hold=audit.get("system_status")=="SAFE_HOLD" and audit.get("safety",{}).get("execution_hold") is True and audit.get("safety",{}).get("builds_enabled") is False and audit.get("safety",{}).get("dispatch_enabled") is False
     if not hold: raise SystemExit("DEPARTMENT_OPS=BLOCKED_UNEXPECTED_SAFETY_STATE")
     roster=d["employees/department_roster.json"].get("employees",[]); tasks={x["task_id"]:x for x in d["projects/ply_erp_backlog.json"].get("requirements",[])}
@@ -34,7 +34,7 @@ def main():
       ("EMP-05","headcount_cost_kaizen_ledger.json",[("HEADCOUNT_MATCHES_ROSTER",len(roster)==5),("ZERO_EXTERNAL_CLOUD_SPEND",finance.get("policy",{}).get("external_cloud_spend_allowed") is False and finance.get("policy",{}).get("external_cloud_spend_limit")==0),("RUNNER_COST","NOT_METERED"),("KAIZEN_STORE_PRESENT",isinstance(d["state/learned_heuristics.json"].get("rules"),list))])
     ]
     for emp,name,checks in results:
-        artifact={"schema_version":"1.0.0","employee_id":emp,"run_id":int(RUN) if RUN.isdigit() else None,"runner_id":int(RUNNER) if RUNNER.isdigit() else None,"system_status":"SAFE_HOLD","execution_mode":"GOVERNANCE_ONLY","product_source_checkout":False,"product_writes":False,"checks":[{"control":k,"result":v if isinstance(v,str) else ("PASS" if v else "FAIL")} for k,v in checks],"overall":"GOVERNANCE_CONTROLS_RECORDED_WITH_EXECUTION_BLOCKS","external_cloud_spend_usd":0,"generated_by":"department_ops_verification.py"}
+        artifact={"schema_version":"1.0.0","employee_id":emp,"run_id":int(RUN) if RUN.isdigit() else None,"runner_id":int(RUNNER) if RUNNER.isdigit() else None,"system_status":"SAFE_HOLD","execution_mode":"GOVERNANCE_ONLY","product_source_checkout":False,"product_writes":False,"checks":[{"control":k,"result":v if isinstance(v,str) else ("PASS" if v else "FAIL")} for k,v in checks],"overall":"GOVERNANCE_CONTROLS_RECORDED_WITH_EXECUTION_BLOCKS","external_cloud_spend_usd":None,"external_cloud_spend_policy_limit_usd":0,"generated_by":"department_ops_verification.py"}
         if any(v is False for _,v in checks): artifact["overall"]="CONTROL_FAILURE"
         put("operations/department_outputs/"+emp+"_"+name,artifact,"operations: persist "+emp+" governance workflow evidence")
     minutes,sha=get("state/minutes_of_meeting.json")
