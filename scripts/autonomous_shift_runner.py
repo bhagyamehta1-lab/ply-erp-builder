@@ -335,6 +335,8 @@ def checkpoint():
         "private_source_in_public_logs": False,
         "model_patch_applied": False,
         "allowlist_enforced": outcomes["read_allowlist"] == "success",
+        "read_allowlist_enforced": outcomes["read_allowlist"] == "success",
+        "materialized_source_files": json.loads(os.environ.get("READ_FILE_ALLOWLIST_JSON", "[]")) if outcomes["read_allowlist"] == "success" else [],
     }
     append_checkpoint(record, token)
 
