@@ -54,8 +54,12 @@ def self_test_write_path_guards():
         except SystemExit:
             continue
         raise SystemExit("Preview write-path self-test failed: an unauthorized target was accepted.")
-
-self_test_write_path_guards()
+    try:
+        api_request("PUT", "/repos/" + REPOSITORY + "/contents/state/ceo_command_audit.json", {})
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("Preview write-path self-test failed: unauthorized GitHub write was not rejected before network access.")
 
 if not TOKEN:
     raise SystemExit("Private preview destination credential is unavailable.")
@@ -86,6 +90,8 @@ def api_request(method, path, payload=None, allow_404=False):
         if allow_404 and exc.code == 404:
             return None
         raise SystemExit("Private preview GitHub API request failed with HTTP " + str(exc.code)) from None
+
+self_test_write_path_guards()
 
 metadata = api_request("GET", "/repos/" + REPOSITORY)
 if metadata.get("full_name", "").casefold() != REPOSITORY.casefold() or metadata.get("private") is not True:
