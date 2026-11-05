@@ -78,8 +78,6 @@ def request_json(method: str, path: str, token: str, payload=None):
         prefix = f"/repos/{REPO}/contents/"
         if method.upper() == "PUT" and path.startswith(prefix):
             validate_hq_write_target(REPO, urllib.parse.unquote(path[len(prefix):].split("?", 1)[0]))
-        elif method.upper() == "POST" and re.fullmatch(rf"/repos/{re.escape(REPO)}/issues/[0-9]+/comments", path):
-            pass
         else:
             raise SafeFailure("GitHub write rejected: endpoint is outside the explicit Enterprise-HQ write boundary.", "WRITE_PATH_DENIED")
     if not token:
@@ -533,14 +531,8 @@ def main() -> int:
                              json.dumps(audit, ensure_ascii=False, indent=2) + "\n",
                              f"Audit CEO inbox command #{number}", WRITE_TOKEN)
 
-            # Issue comments are private to the Enterprise-HQ repository.
-            policy_note = ("Inbox consultation is read-only unless a separate task-scoped dispatch gate passes; this issue sync did not dispatch product code." if active_operations else "SAFE_HOLD remains active. Meeting minutes only; no PLY_ERP task was dispatched.")
-            comment_body = (
-                f"CEO Command Desk result\n\n{result_text}\n\n"
-                f"{policy_note}\n\n{marker_text}"
-            )
-            post_issue_comment(number, comment_body, WRITE_TOKEN)
-            comments_posted += 1
+            # Issue comments are outside the approved governance-file allowlist.
+            # Keep the Inbox synchronization non-mutating; no comment is posted.
 
     print("HQ_READ_AUTH=PASS")
     print("HQ_REPOSITORY_IDENTITY=PRIVATE_ENTERPRISE_HQ_CONFIRMED")
