@@ -245,6 +245,9 @@ def checkpoint():
         "publish_identity": os.environ.get("PUBLISH_OUTCOME", "skipped"),
         "runner_identity": os.environ.get("RUNNER_ID_OUTCOME", "skipped"),
     }
+    preview_required = os.environ.get("VERIFICATION_MODE", "") == "PREVIEW_ONLY"
+    preview_bundle_outcome = os.environ.get("PREVIEW_BUNDLE_OUTCOME", "skipped")
+    preview_artifact_outcome = os.environ.get("PREVIEW_ARTIFACT_OUTCOME", "skipped")
     authorized = os.environ.get("AUTONOMY_AUTHORIZED", "").casefold() == "true"
     run_id = os.environ.get("GITHUB_RUN_ID")
     source_sha_path = pathlib.Path("/dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA")
@@ -256,7 +259,14 @@ def checkpoint():
         job = next((item for item in jobs.get("jobs", []) if item.get("name") == "Public CEO command and worker engine"), None)
         if job and isinstance(job.get("runner_id"), int):
             runner_id = job["runner_id"]
-    passed = authorized and all(value == "success" for value in outcomes.values()) and bool(source_sha) and isinstance(runner_id, int) and runner_id > 0
+    passed = (
+        authorized
+        and all(value == "success" for value in outcomes.values())
+        and (not preview_required or (preview_bundle_outcome == "success" and preview_artifact_outcome == "success"))
+        and bool(source_sha)
+        and isinstance(runner_id, int)
+        and runner_id > 0
+    )
     record = {
         "timestamp": now(),
         "event": os.environ.get("GITHUB_EVENT_NAME"),
@@ -267,7 +277,7 @@ def checkpoint():
         "authorized": authorized,
         "product_commit": source_sha,
         "runner_id": runner_id,
-        "step_outcomes": outcomes,
+        "step_outcomes": {**outcomes, "preview_bundle": preview_bundle_outcome, "preview_artifact": preview_artifact_outcome},
         "private_source_in_public_logs": False,
         "model_patch_applied": False,
     }
