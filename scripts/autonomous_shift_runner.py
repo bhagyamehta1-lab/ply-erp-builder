@@ -217,12 +217,20 @@ def preflight():
         and bool(task.get("explicit_file_allowlist"))
         and grant.get("candidate_sha") == expected_candidate
         and grant.get("explicit_file_allowlist") == task.get("explicit_file_allowlist")
+        and read_allowlist_valid
+        and grant.get("read_file_allowlist") == read_file_allowlist
     )
     # Global and task-scoped authorization are conjunctive; neither can override the other.
     build_allowed = safety.get("builds_enabled") is True and scoped_build
     candidate_branch = grant.get("allowed_branch", "main") if task else "main"
     candidate_sha = grant.get("candidate_sha") or expected_candidate or ""
     file_allowlist = task.get("explicit_file_allowlist", []) if task else []
+    read_file_allowlist = grant.get("read_file_allowlist", task.get("read_file_allowlist", [])) if task else []
+    read_allowlist_valid = (
+        isinstance(read_file_allowlist, list) and bool(read_file_allowlist)
+        and all(isinstance(path, str) and path and not path.startswith("/") and ".." not in pathlib.PurePosixPath(path).parts for path in read_file_allowlist)
+        and set(file_allowlist).issubset(set(read_file_allowlist))
+    )
     verification_mode = task.get("verification_mode", "TASK_BUILD") if task else "NONE"
     event = os.environ.get("GITHUB_EVENT_NAME", "unknown")
     authorized = False
@@ -257,6 +265,8 @@ def preflight():
         "task_id": task_id,
         "candidate_branch": candidate_branch,
         "explicit_file_allowlist": task.get("explicit_file_allowlist", []) if task else [],
+        "read_file_allowlist": read_file_allowlist,
+        "read_allowlist_count": len(read_file_allowlist) if isinstance(read_file_allowlist, list) else 0,
         "state": state,
         "authorized": authorized,
         "reason": reason,
@@ -266,7 +276,7 @@ def preflight():
         "model_patch_applied": False,
     }
     append_checkpoint(record, write_token)
-    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"]), "task_id": task_id or "", "candidate_branch": candidate_branch, "baseline_sha": index.get("last_verified_commit", ""), "candidate_sha": candidate_sha, "file_allowlist": json.dumps(file_allowlist, separators=(",", ":")), "verification_mode": verification_mode})
+    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"]), "task_id": task_id or "", "candidate_branch": candidate_branch, "baseline_sha": index.get("last_verified_commit", ""), "candidate_sha": candidate_sha, "file_allowlist": json.dumps(file_allowlist, separators=(",", ":")), "read_file_allowlist": json.dumps(read_file_allowlist, separators=(",", ":")), "verification_mode": verification_mode})
     print(f"AUTONOMY_POLICY={state}")
     print(f"AUTONOMY_TASK_ID={task_id or 'NONE'}")
     print(f"AUTONOMY_VERIFICATION_AUTHORIZED={'YES' if authorized else 'NO'}")
@@ -287,6 +297,7 @@ def checkpoint():
         "rust": os.environ.get("RUST_OUTCOME", "skipped"),
         "publish_identity": os.environ.get("PUBLISH_OUTCOME", "skipped"),
         "runner_identity": os.environ.get("RUNNER_ID_OUTCOME", "skipped"),
+        "read_allowlist": os.environ.get("READ_ALLOWLIST_OUTCOME", "skipped"),
     }
     preview_required = os.environ.get("VERIFICATION_MODE", "") == "PREVIEW_ONLY"
     preview_bundle_outcome = os.environ.get("PREVIEW_BUNDLE_OUTCOME", "skipped")
@@ -323,6 +334,7 @@ def checkpoint():
         "step_outcomes": {**outcomes, "preview_bundle": preview_bundle_outcome, "preview_artifact": preview_artifact_outcome},
         "private_source_in_public_logs": False,
         "model_patch_applied": False,
+        "allowlist_enforced": outcomes["read_allowlist"] == "success",
     }
     append_checkpoint(record, token)
 
