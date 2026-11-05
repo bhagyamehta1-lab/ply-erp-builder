@@ -310,7 +310,7 @@ def main() -> int:
                          f"Boardroom minutes for CEO issue #{number}", WRITE_TOKEN)
                 if locked:
                     backlog["enterprise_status"] = "ACTIVE_OPERATIONS"
-                    put_file("projects/ply_erp_backlog.json", json.dumps(backlog, ensure_ascii=False, indent=2)+"\\n",
+                    put_file("projects/ply_erp_backlog.json", json.dumps(backlog, ensure_ascii=False, indent=2)+"\n",
                              f"CEO locked boardroom task {task_id}", WRITE_TOKEN)
                     result_text = f"Boardroom decision recorded. {task_id} is approved but BLOCKED_PENDING_ARCHITECTURE_SCOPE; no code was dispatched. EMP-01 must produce the exact allowlist and a new matching task grant before execution."
                 else:
