@@ -7,6 +7,7 @@ never applies model-generated patches, and fails closed when authorization is ab
 from __future__ import annotations
 
 import argparse
+import time
 import base64
 import json
 import os
@@ -93,17 +94,35 @@ def put_contents(path: str, value, token: str, sha=None, message="autonomy: reco
 
 
 def append_checkpoint(record, token: str):
-    try:
-        existing, sha = get_json(CHECKPOINT_PATH, token)
-        if not isinstance(existing, dict) or not isinstance(existing.get("checkpoints"), list):
-            raise RunnerError("Checkpoint store schema is invalid.")
-    except RunnerError as exc:
-        if "Required HQ file is missing" not in str(exc):
-            raise
-        existing, sha = {"schema_version": "1.0.0", "checkpoints": []}, None
-    existing["checkpoints"].append(record)
-    existing["checkpoints"] = existing["checkpoints"][-100:]
-    put_contents(CHECKPOINT_PATH, existing, token, sha)
+    """Append a checkpoint with bounded optimistic-concurrency retries."""
+    for attempt in range(4):
+        try:
+            existing, sha = get_json(CHECKPOINT_PATH, token)
+            if not isinstance(existing, dict) or not isinstance(existing.get("checkpoints"), list):
+                raise RunnerError("Checkpoint store schema is invalid.")
+        except RunnerError as exc:
+            if "Required HQ file is missing" not in str(exc):
+                raise
+            existing, sha = {"schema_version": "1.0.0", "checkpoints": []}, None
+
+        checkpoints = existing["checkpoints"]
+        prior = next((i for i, item in enumerate(checkpoints)
+                      if str(item.get("run_id")) == str(record.get("run_id"))
+                      and item.get("task_id") == record.get("task_id")), None)
+        if prior is None:
+            checkpoints.append(record)
+        else:
+            checkpoints[prior] = record
+        existing["checkpoints"] = checkpoints[-100:]
+
+        try:
+            put_contents(CHECKPOINT_PATH, existing, token, sha)
+            return
+        except RunnerError as exc:
+            if "HTTP 409" not in str(exc) or attempt == 3:
+                raise
+            time.sleep(0.4 * (attempt + 1))
+    raise RunnerError("Checkpoint update exhausted its concurrency retries.")
 
 
 def append_verified_heuristic(rule, token: str):
