@@ -69,6 +69,12 @@ def self_test_write_path_guards() -> None:
         except SafeFailure:
             continue
         raise SafeFailure("Write-path security self-test failed: an unauthorized target was accepted.", "WRITE_PATH_SELF_TEST_FAILED")
+    try:
+        request_json("PUT", f"/repos/{REPO}/contents/state/task_grants.json", "", {})
+    except SafeFailure:
+        pass
+    else:
+        raise SafeFailure("Write-path security self-test failed: unauthorized GitHub write was not rejected before network access.", "WRITE_PATH_SELF_TEST_FAILED")
 
 
 def request_json(method: str, path: str, token: str, payload=None):
