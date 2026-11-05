@@ -231,6 +231,7 @@ def preflight():
     preview_reads = preview_task.get("read_file_allowlist")
     preview_destinations = preview_task.get("preview_destination_allowlist")
     if (preview_task.get("explicit_file_allowlist") != []
+            or preview_task.get("authorization", {}).get("explicit_file_allowlist") != []
             or preview_grant.get("explicit_file_allowlist") != []
             or not isinstance(preview_reads, list) or len(preview_reads) != 34
             or len(preview_reads) != len(set(preview_reads))
