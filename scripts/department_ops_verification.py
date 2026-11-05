@@ -43,7 +43,7 @@ def main():
         put("operations/department_outputs/"+emp+"_"+name,artifact,"operations: persist "+emp+" governance workflow evidence")
     minutes,sha=get("state/minutes_of_meeting.json")
     minutes.setdefault("records",[]).append({"meeting_id":"OPS-READINESS-"+RUN,"timestamp":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),"source":"Governance-only worker workflow","run_id":int(RUN) if RUN.isdigit() else None,"runner_id":int(RUNNER) if RUNNER.isdigit() else None,"system_status":"SAFE_HOLD","participants":["EMP-01","EMP-02","EMP-03","EMP-04","EMP-05","Human CEO"],"decision":"OPERATIONAL_READINESS_CONTROLS_RECORDED_NOT_PRODUCTION_CERTIFIED","summary":"Five department workflows persisted governance-only outputs. Product checkout/build/dispatch/deployment remained disabled. Cost actuals are unmetered; no financial amount was inferred."})
-    payload={"message":"boardroom: record governance-only operational readiness review","content":base64.b64encode((json.dumps(minutes,indent=2)+"\\n").encode()).decode(),"sha":sha,"branch":"main"}
+    payload={"message":"boardroom: record governance-only operational readiness review","content":base64.b64encode((json.dumps(minutes,indent=2)+"\n").encode()).decode(),"sha":sha,"branch":"main"}
     request("PUT",f"/repos/{REPO}/contents/state/minutes_of_meeting.json",WRITE,payload)
     print("DEPARTMENT_WORKFLOWS=5_OUTPUTS_PERSISTED")
     print("BOARDROOM_MINUTES=APPENDED")
