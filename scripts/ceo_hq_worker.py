@@ -16,6 +16,12 @@ from pathlib import Path
 
 REPO = "bhagyamehta1-lab/Enterprise-HQ"
 OWNER = "bhagyamehta1-lab"
+HQ_WRITE_PATHS = frozenset({
+    "projects/ply_erp_backlog.json",
+    "state/minutes_of_meeting.json",
+    "state/ceo_command_audit.json",
+    "state/codebase_index.json",
+})
 API = "https://api.github.com"
 WORKSPACE = Path(os.environ.get("WORKSPACE", "/dev/shm/enterprise_workspace"))
 READ_TOKEN = os.environ.get("ENTERPRISE_HQ_READ_TOKEN", "")
@@ -33,7 +39,49 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def validate_hq_write_target(repository: str, path: str) -> str:
+    if repository != REPO:
+        raise SafeFailure("Write rejected: repository is outside the Enterprise-HQ governance boundary.", "WRITE_PATH_DENIED")
+    if not isinstance(path, str) or not path or "\\\\" in path:
+        raise SafeFailure("Write rejected: invalid repository path.", "WRITE_PATH_DENIED")
+    candidate = Path(path)
+    if candidate.is_absolute() or any(part in ("", ".", "..") for part in candidate.parts):
+        raise SafeFailure("Write rejected: path traversal or non-canonical path.", "WRITE_PATH_DENIED")
+    normalized = candidate.as_posix()
+    if normalized != path or normalized not in HQ_WRITE_PATHS:
+        raise SafeFailure("Write rejected: path is not in the explicit Enterprise-HQ governance allowlist.", "WRITE_PATH_DENIED")
+    return normalized
+
+
+def self_test_write_path_guards() -> None:
+    assert validate_hq_write_target(REPO, "projects/ply_erp_backlog.json") == "projects/ply_erp_backlog.json"
+    blocked = (
+        ("bhagyamehta1-lab/PLY_ERP", "state/ceo_command_audit.json"),
+        (REPO, "state/task_grants.json"),
+        (REPO, "state/../ceo_command_audit.json"),
+        (REPO, ".github/workflows/public_worker_executor.yml"),
+        (REPO, "src-tauri/src/storage.rs"),
+        ("bhagyamehta1-lab/ply-erp-builder", "state/ceo_command_audit.json"),
+    )
+    for repository, path in blocked:
+        try:
+            validate_hq_write_target(repository, path)
+        except SafeFailure:
+            continue
+        raise SafeFailure("Write-path security self-test failed: an unauthorized target was accepted.", "WRITE_PATH_SELF_TEST_FAILED")
+
+
 def request_json(method: str, path: str, token: str, payload=None):
+    if method.upper() not in ("GET", "HEAD"):
+        # Only exact HQ governance file writes and issue-comment writes are
+        # recognized. SAFE_HOLD exits before the issue-comment branch is reached.
+        prefix = f"/repos/{REPO}/contents/"
+        if method.upper() == "PUT" and path.startswith(prefix):
+            validate_hq_write_target(REPO, urllib.parse.unquote(path[len(prefix):].split("?", 1)[0]))
+        elif method.upper() == "POST" and re.fullmatch(rf"/repos/{re.escape(REPO)}/issues/[0-9]+/comments", path):
+            pass
+        else:
+            raise SafeFailure("GitHub write rejected: endpoint is outside the explicit Enterprise-HQ write boundary.", "WRITE_PATH_DENIED")
     if not token:
         raise SafeFailure("Required credential is not configured.")
     headers = {
@@ -79,8 +127,19 @@ def get_file(path: str, token: str):
 
 
 def put_file(path: str, content: str, message: str, token: str):
+    # Validate before the first network call; this helper is HQ-only.
+    validate_hq_write_target(REPO, path)
     # Read the latest blob SHA with the write credential to avoid stale updates.
-    _, sha = get_file(path, token)
+    current_content, sha = get_file(path, token)
+    if path == "state/ceo_command_audit.json":
+        try:
+            current_audit = json.loads(current_content)
+            next_audit = json.loads(content)
+        except json.JSONDecodeError:
+            raise SafeFailure("Audit write rejected: invalid JSON.", "SCHEMA_MISMATCH") from None
+        for protected in ("system_status", "enterprise_status", "safety"):
+            if next_audit.get(protected) != current_audit.get(protected):
+                raise SafeFailure("Audit write rejected: Inbox telemetry cannot alter CEO status or global safety gates.", "SAFETY_FIELD_WRITE_DENIED")
     encoded = urllib.parse.quote(path, safe="/")
     result = request_json(
         "PUT",
@@ -164,6 +223,7 @@ def post_issue_comment(issue_number: int, body: str, token: str):
 
 
 def main() -> int:
+    self_test_write_path_guards()
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     os.chmod(WORKSPACE, 0o700)
     if not READ_TOKEN:
