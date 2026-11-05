@@ -72,7 +72,7 @@ test('worker workflow has no public artifact upload and verifies physical read b
  assert.match(workflow,/git fetch --quiet --filter=blob:none/);
  assert.match(workflow,/git sparse-checkout init --no-cone/);
  assert.match(workflow,/materialized != read_allowed/);
- assert.doesNotMatch(workflow,/actions\\/upload-artifact/);
+ assert.equal(workflow.includes('actions/upload-artifact'),false);
  assert.match(runner,/read_file_allowlist/);
  assert.match(runner,/materialized_source_files/);
 });
