@@ -209,6 +209,16 @@ def preflight():
     safety = roadmap.get("safety", {})
     grant = safety.get("task_scoped_build_authorizations", {}).get(task_id, {}) if task_id else {}
     expected_candidate = task.get("candidate_commit") or index.get("last_verified_commit") if task else None
+    candidate_branch = grant.get("allowed_branch", "main") if task else "main"
+    candidate_sha = grant.get("candidate_sha") or expected_candidate or ""
+    file_allowlist = task.get("explicit_file_allowlist", []) if task else []
+    read_file_allowlist = grant.get("read_file_allowlist", task.get("read_file_allowlist", [])) if task else []
+    read_allowlist_valid = (
+        isinstance(read_file_allowlist, list) and bool(read_file_allowlist)
+        and all(isinstance(path, str) and path and not path.startswith("/") and ".." not in pathlib.PurePosixPath(path).parts for path in read_file_allowlist)
+        and set(file_allowlist).issubset(set(read_file_allowlist))
+    )
+    verification_mode = task.get("verification_mode", "TASK_BUILD") if task else "NONE"
     scoped_build = (
         grant.get("authorized") is True
         and grant.get("task_id") == task_id
@@ -222,16 +232,6 @@ def preflight():
     )
     # Global and task-scoped authorization are conjunctive; neither can override the other.
     build_allowed = safety.get("builds_enabled") is True and scoped_build
-    candidate_branch = grant.get("allowed_branch", "main") if task else "main"
-    candidate_sha = grant.get("candidate_sha") or expected_candidate or ""
-    file_allowlist = task.get("explicit_file_allowlist", []) if task else []
-    read_file_allowlist = grant.get("read_file_allowlist", task.get("read_file_allowlist", [])) if task else []
-    read_allowlist_valid = (
-        isinstance(read_file_allowlist, list) and bool(read_file_allowlist)
-        and all(isinstance(path, str) and path and not path.startswith("/") and ".." not in pathlib.PurePosixPath(path).parts for path in read_file_allowlist)
-        and set(file_allowlist).issubset(set(read_file_allowlist))
-    )
-    verification_mode = task.get("verification_mode", "TASK_BUILD") if task else "NONE"
     event = os.environ.get("GITHUB_EVENT_NAME", "unknown")
     authorized = False
     state = "BLOCKED_UNKNOWN_STATE"
