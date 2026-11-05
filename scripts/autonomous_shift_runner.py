@@ -21,6 +21,7 @@ import pathlib
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -38,6 +39,47 @@ INDEX_PATH = "state/codebase_index.json"
 HEURISTICS_PATH = "state/learned_heuristics.json"
 DNA_PATH = "protocols/enterprise_alignment_dna.md"
 
+# This runner may persist only these Enterprise-HQ governance records. It never
+# writes to a product repository, worker repository, workflow, grant, or release path.
+HQ_WRITE_PATHS = frozenset({
+    CHECKPOINT_PATH,
+    AUDIT_PATH,
+    INDEX_PATH,
+    HEURISTICS_PATH,
+})
+
+
+def validate_hq_write_target(repository: str, path: str) -> str:
+    if repository != HQ:
+        raise RunnerError("Write rejected: repository is outside the Enterprise-HQ governance boundary.")
+    if not isinstance(path, str) or not path or "\\\\" in path:
+        raise RunnerError("Write rejected: invalid repository path.")
+    candidate = pathlib.PurePosixPath(path)
+    if candidate.is_absolute() or any(part in ("", ".", "..") for part in candidate.parts):
+        raise RunnerError("Write rejected: path traversal or non-canonical path.")
+    normalized = candidate.as_posix()
+    if normalized != path or normalized not in HQ_WRITE_PATHS:
+        raise RunnerError("Write rejected: path is not in the explicit Enterprise-HQ governance allowlist.")
+    return normalized
+
+
+def self_test_write_path_guards() -> None:
+    assert validate_hq_write_target(HQ, CHECKPOINT_PATH) == CHECKPOINT_PATH
+    blocked = (
+        (PRODUCT, CHECKPOINT_PATH),
+        (HQ, "state/task_grants.json"),
+        (HQ, "state/../ceo_command_audit.json"),
+        (HQ, ".github/workflows/public_worker_executor.yml"),
+        (HQ, "src-tauri/src/storage.rs"),
+        ("bhagyamehta1-lab/ply-erp-builder", CHECKPOINT_PATH),
+    )
+    for repository, path in blocked:
+        try:
+            validate_hq_write_target(repository, path)
+        except RunnerError:
+            continue
+        raise RunnerError("Write-path security self-test failed: an unauthorized target was accepted.")
+
 
 class RunnerError(RuntimeError):
     pass
@@ -48,6 +90,16 @@ def now():
 
 
 def request_json(method: str, url: str, token: str, payload=None):
+    # All mutating API calls must be Enterprise-HQ Contents writes to an exact
+    # governance allowlist path. Reject before constructing/sending a request.
+    if method.upper() not in ("GET", "HEAD"):
+        parsed = urllib.parse.urlsplit(url)
+        prefix = f"/repos/{HQ}/contents/"
+        if method.upper() != "PUT" or parsed.netloc.casefold() != "api.github.com" or not parsed.path.startswith(prefix):
+            raise RunnerError("GitHub write rejected: only allowlisted Enterprise-HQ governance Contents writes are permitted.")
+        encoded_path = parsed.path[len(prefix):]
+        decoded_path = urllib.parse.unquote(encoded_path)
+        validate_hq_write_target(HQ, decoded_path)
     body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
     req = urllib.request.Request(
         url,
@@ -94,6 +146,13 @@ def get_json(path: str, token: str):
 
 
 def put_contents(path: str, value, token: str, sha=None, message="autonomy: record sanitized checkpoint"):
+    validate_hq_write_target(HQ, path)
+    if path == AUDIT_PATH:
+        current, _ = get_json(AUDIT_PATH, token)
+        if (value.get("system_status") != current.get("system_status")
+                or value.get("enterprise_status") != current.get("enterprise_status")
+                or value.get("safety") != current.get("safety")):
+            raise RunnerError("Audit write rejected: shift telemetry may not alter CEO status or global safety gates.")
     content = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     payload = {
         "message": message,
@@ -556,6 +615,7 @@ def main():
     parser.add_argument("mode", choices=("preflight", "checkpoint"))
     args = parser.parse_args()
     try:
+        self_test_write_path_guards()
         return preflight() if args.mode == "preflight" else checkpoint()
     except (RunnerError, OSError, ValueError, KeyError, TypeError) as exc:
         safe_message = str(exc).replace("\n", " ")[:400]
