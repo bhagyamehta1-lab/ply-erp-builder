@@ -2,6 +2,7 @@
 """Policy-gated background verifier for Enterprise-HQ.
 
 Pipeline nudge: consume the newly promoted PLY-0004 task on the next push run.
+Implementation candidate is pinned to the scoped PLY-0004 branch head; verify only its six-file allowlist.
 
 Reads the alignment DNA before any other HQ state. It never edits product source,
 never applies model-generated patches, and fails closed when authorization is absent.
