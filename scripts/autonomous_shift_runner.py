@@ -226,7 +226,8 @@ def preflight():
             or legal.get("privacy_security", {}).get("zero_pii_exfiltration") is not True
             or delivery.get("release_integrity", {}).get("sha256_manifest_required") is not True
             or charter.get("human_ceo", {}).get("github_identity") != "bhagyamehta1-lab"
-            or {x.get("employee_id") for x in department_bindings.get("workflows", [])} != {"EMP-01", "EMP-02", "EMP-03", "EMP-04", "EMP-05"}):
+            or {x.get("employee_id") for x in department_bindings.get("workflows", [])} != {"EMP-01", "EMP-02", "EMP-03", "EMP-04", "EMP-05"}
+            or any(not any(e.get("employee_id") == w.get("employee_id") and e.get("operational_workflow") == w.get("workflow") and e.get("mandatory_output_artifact") == w.get("mandatory_output") for e in roster["employees"]) for w in department_bindings.get("workflows", []))):
         raise RunnerError("Canonical governance record or schema validation failed.")
 
     missing_memory = [
