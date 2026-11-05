@@ -251,11 +251,11 @@ jobs:
           root=pathlib.Path("src/platform/storage/migrations")
           names=[]
           for path in sorted(root.glob("00[1-5]_*.sql")):
-              for name in re.findall(r"CREATE TABLE IF NOT EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)",path.read_text(),re.I):
+              for name in re.findall(r"CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)",path.read_text(),re.I):
                   names.append((name,path.name))
           with open(pathlib.Path("/dev/shm/enterprise_workspace/CEO_PREVIEW/CEO_APP_WALKTHROUGH.md"),"a",encoding="utf-8") as f:
               for name,migration in names:
-                  f.write(f"- {name} — {migration}\\n")
+                  f.write(f"- {name} — {migration}\n")
           PY
           if find "$WORKSPACE/CEO_PREVIEW/dist" -type f \\( -name '*.map' -o -name '*.tsx' -o -name '*.ts' \\) | grep -q .; then
             echo "CEO_PREVIEW_SANITIZATION=FAIL"; exit 1
@@ -272,6 +272,7 @@ jobs:
           echo "A private artifact destination is required; no private-derived bundle was uploaded."
 
       - name: Upload private CEO preview artifact
+        id: upload_preview
         if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode == 'PREVIEW_ONLY' && github.event.repository.private == true
         uses: actions/upload-artifact@v4
         with:
@@ -342,6 +343,9 @@ jobs:
           RUST_OUTCOME: ${{ steps.rust.outcome || 'skipped' }}
           PUBLISH_OUTCOME: ${{ steps.publish_identity.outcome || 'skipped' }}
           RUNNER_ID_OUTCOME: ${{ steps.runner_identity.outcome || 'skipped' }}
+          VERIFICATION_MODE: ${{ steps.autonomy.outputs.verification_mode || 'NONE' }}
+          PREVIEW_BUNDLE_OUTCOME: ${{ steps.ceo_preview.outcome || 'skipped' }}
+          PREVIEW_ARTIFACT_OUTCOME: ${{ steps.upload_preview.outcome || 'skipped' }}
         shell: bash
         run: |
           set -euo pipefail
