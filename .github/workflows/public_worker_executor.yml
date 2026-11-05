@@ -268,10 +268,10 @@ jobs:
         id: private_preview_publish
         if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode == 'PREVIEW_ONLY' && steps.ceo_preview.outcome == 'success'
         env:
-          ENTERPRISE_HQ_WRITE_TOKEN: \${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
-          CANDIDATE_SHA: \${{ steps.autonomy.outputs.candidate_sha }}
+          ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          CANDIDATE_SHA: ${{ steps.autonomy.outputs.candidate_sha }}
           PREVIEW_DIR: /dev/shm/enterprise_workspace/CEO_PREVIEW
-          GITHUB_RUN_ID: \${{ github.run_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
