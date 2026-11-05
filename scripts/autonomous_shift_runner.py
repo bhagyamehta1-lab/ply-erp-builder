@@ -28,6 +28,12 @@ HQ = "bhagyamehta1-lab/Enterprise-HQ"
 PRODUCT = "bhagyamehta1-lab/PLY_ERP"
 API = "https://api.github.com"
 CHECKPOINT_PATH = "state/autonomous_shift_checkpoints.json"
+AUDIT_PATH = "state/ceo_command_audit.json"
+PORTFOLIO_PATH = "projects/portfolio_registry.json"
+ROSTER_PATH = "employees/department_roster.json"
+BRAIN_PATH = "state/universal_employee_brain.json"
+CAPSULES_PATH = "state/project_knowledge_capsules.json"
+GRAPH_PATH = "state/department_knowledge_graph.json"
 INDEX_PATH = "state/codebase_index.json"
 HEURISTICS_PATH = "state/learned_heuristics.json"
 DNA_PATH = "protocols/enterprise_alignment_dna.md"
@@ -196,6 +202,27 @@ def preflight():
     heuristics, _ = get_json(HEURISTICS_PATH, read_token)
     roadmap, _ = get_json("state/enterprise_roadmap.json", read_token)
     backlog, _ = get_json("projects/ply_erp_backlog.json", read_token)
+    audit, _ = get_json(AUDIT_PATH, read_token)
+    portfolio, _ = get_json(PORTFOLIO_PATH, read_token)
+    roster, _ = get_json(ROSTER_PATH, read_token)
+    brain, _ = get_json(BRAIN_PATH, read_token)
+    capsules, _ = get_json(CAPSULES_PATH, read_token)
+    graph, _ = get_json(GRAPH_PATH, read_token)
+    checkpoints, _ = get_json(CHECKPOINT_PATH, read_token)
+
+    if (not isinstance(audit, dict) or not isinstance(portfolio.get("ventures"), list)
+            or not portfolio["ventures"] or not isinstance(roster.get("employees"), list)
+            or not roster["employees"] or not isinstance(brain.get("employee_memory_nodes"), dict)
+            or not isinstance(capsules.get("projects"), dict) or "PLY_ERP" not in capsules["projects"]
+            or not isinstance(graph, dict) or not isinstance(checkpoints.get("checkpoints"), list)):
+        raise RunnerError("Canonical governance record or schema validation failed.")
+
+    missing_memory = [
+        employee.get("employee_id") for employee in roster["employees"]
+        if employee.get("employee_id") + "_universal_memory" not in brain["employee_memory_nodes"]
+    ]
+    if missing_memory:
+        raise RunnerError("A roster employee is missing a dedicated universal memory node.")
 
     required_heuristic_fields = {"id", "trigger_pattern", "root_cause", "mandatory_fix", "verified_in_run"}
     if (not isinstance(index, dict) or not index.get("last_verified_commit")
@@ -204,6 +231,14 @@ def preflight():
             or any(not isinstance(rule, dict) or not required_heuristic_fields.issubset(rule) for rule in heuristics["rules"])):
         raise RunnerError("Codebase index or learned heuristics schema is invalid.")
 
+    audit_safety = audit.get("safety", {})
+    audit_hold = (
+        audit.get("system_status") == "SAFE_HOLD"
+        or audit_safety.get("safe_hold") is True
+        or audit_safety.get("execution_hold") is True
+        or audit_safety.get("builds_enabled") is not True
+        or audit_safety.get("dispatch_enabled") is not True
+    )
     active_tasks = [item for item in backlog.get("requirements", [])
                     if item.get("status") == "IN_PROGRESS" and item.get("dispatch_authorized") is True]
     task = active_tasks[0] if len(active_tasks) == 1 else None
@@ -221,12 +256,24 @@ def preflight():
         and set(file_allowlist).issubset(set(read_file_allowlist))
     )
     verification_mode = task.get("verification_mode", "TASK_BUILD") if task else "NONE"
+    preview_only = verification_mode == "PREVIEW_ONLY"
+    if preview_only:
+        destinations = task.get("preview_destination_allowlist", [])
+        write_boundary_valid = (
+            file_allowlist == []
+            and grant.get("explicit_file_allowlist") == []
+            and grant.get("preview_destination_allowlist") == destinations
+            and len(destinations) == 3
+            and all(path.startswith("previews/PLY-0003/" + str(expected_candidate) + "/") for path in destinations)
+        )
+    else:
+        write_boundary_valid = bool(file_allowlist) and set(file_allowlist).issubset(set(read_file_allowlist))
     scoped_build = (
         grant.get("authorized") is True
         and grant.get("task_id") == task_id
         and grant.get("allowed_repository") == PRODUCT
         and bool(grant.get("allowed_branch"))
-        and bool(task.get("explicit_file_allowlist"))
+        and write_boundary_valid
         and grant.get("candidate_sha") == expected_candidate
         and grant.get("explicit_file_allowlist") == task.get("explicit_file_allowlist")
         and read_allowlist_valid
@@ -243,7 +290,9 @@ def preflight():
     state = "BLOCKED_UNKNOWN_STATE"
     reason = "No single approved active task has matching authorization."
 
-    if len(active_tasks) == 0:
+    if audit_hold:
+        state, reason = "BLOCKED_CEO_AUDIT_SAFE_HOLD", "The CEO Command Audit is the master state and explicitly denies execution."
+    elif len(active_tasks) == 0:
         state, reason = "BLOCKED_NO_ACTIVE_TASK", "No IN_PROGRESS dispatch-authorized task exists in the HQ backlog."
     elif len(active_tasks) > 1:
         state, reason = "BLOCKED_AMBIGUOUS_TASK_SCOPE", "More than one active task is dispatch-authorized."
@@ -278,6 +327,8 @@ def preflight():
         "reason": reason,
         "codebase_index_commit": index.get("last_verified_commit"),
         "loaded_heuristic_count": len(heuristics["rules"]),
+        "ceo_audit_system_status": audit.get("system_status"),
+        "ceo_audit_execution_hold": audit_safety.get("execution_hold"),
         "private_source_checked_out": False,
         "model_patch_applied": False,
     }
@@ -327,13 +378,16 @@ def checkpoint():
         and isinstance(runner_id, int)
         and runner_id > 0
     )
+    policy_state = os.environ.get("AUTONOMY_POLICY_STATE", "")
+    blocked_state = policy_state if policy_state.startswith("BLOCKED_") or policy_state.startswith("SKIPPED_") else ""
+    checkpoint_state = "VERIFIED_PASS" if passed else (blocked_state or "VERIFICATION_FAILED")
     record = {
         "timestamp": now(),
         "event": os.environ.get("GITHUB_EVENT_NAME"),
         "run_id": run_id,
         "worker_commit": os.environ.get("GITHUB_SHA"),
-        "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN"),
-        "state": "VERIFIED_PASS" if passed else "VERIFICATION_FAILED",
+        "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN") or None,
+        "state": checkpoint_state,
         "authorized": authorized,
         "product_commit": source_sha,
         "runner_id": runner_id,
@@ -342,9 +396,43 @@ def checkpoint():
         "model_patch_applied": False,
         "allowlist_enforced": outcomes["read_allowlist"] == "success",
         "read_allowlist_enforced": outcomes["read_allowlist"] == "success",
+        "workflow_conclusion_at_checkpoint": "IN_PROGRESS",
+        "workspace_cleanup": "PENDING_FINAL_ALWAYS_STEP",
         "materialized_source_files": json.loads(os.environ.get("READ_FILE_ALLOWLIST_JSON", "[]")) if outcomes["read_allowlist"] == "success" else [],
     }
     append_checkpoint(record, token)
+
+    # Append governance telemetry with the HQ-only writer; never mutate execution gates.
+    audit, audit_sha = get_json(AUDIT_PATH, token)
+    audit.setdefault("commands", []).append({
+        "command": "GOVERNANCE_ONLY_SHIFT_WATCH_TELEMETRY",
+        "trigger": "public worker post-policy checkpoint",
+        "workflow_run_id": int(run_id) if run_id and run_id.isdigit() else None,
+        "runner_id": runner_id,
+        "result": checkpoint_state,
+        "product_source_checkout": "SKIPPED" if not authorized else "AUTHORIZED_BY_SEPARATE_POLICY",
+        "timestamp": now(),
+        "safety_state_preserved": audit.get("system_status") == "SAFE_HOLD",
+    })
+    audit["timestamp"] = now()
+    audit["latest_shift_watch"] = {
+        "mode": "GOVERNANCE_ONLY",
+        "system_status": audit.get("system_status"),
+        "execution_hold": audit.get("safety", {}).get("execution_hold"),
+        "builds_enabled": audit.get("safety", {}).get("builds_enabled"),
+        "dispatch_enabled": audit.get("safety", {}).get("dispatch_enabled"),
+        "latest_worker_run_id": int(run_id) if run_id and run_id.isdigit() else None,
+        "latest_worker_runner_id": runner_id,
+        "latest_worker_conclusion": "IN_PROGRESS_AT_AUDIT_APPEND",
+        "worker_checkpoint": checkpoint_state,
+        "private_source_checkout": False if not authorized else "NOT_YET_PERFORMED",
+        "public_actions_artifacts": 0,
+        "meera_employee_id": "EMP-05",
+        "qa_transition_called": False,
+        "ceo_uat": "PENDING",
+        "deployments_enabled": audit.get("safety", {}).get("deployments_enabled"),
+    }
+    put_contents(AUDIT_PATH, audit, token, audit_sha, "audit: append governance-only shift telemetry")
 
     if passed:
         index, sha = get_json(INDEX_PATH, token)
@@ -406,7 +494,7 @@ def checkpoint():
     print("AUTONOMY_TASK_ID=" + os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN"))
     print("AUTONOMY_CHECKPOINT=" + ("PASS" if passed else "FAIL"))
     print("PRIVATE_SOURCE_CONTENT_IN_LOGS=NO")
-    return 0 if passed else 1
+    return 0 if passed or not authorized else 1
 
 
 def main():
