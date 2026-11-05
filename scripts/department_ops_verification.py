@@ -16,12 +16,16 @@ def get(path):
 def put(path,obj,message):
     try: _,sha=get(path)
     except Exception: sha=None
-    payload={"message":message,"content":base64.b64encode((json.dumps(obj,indent=2)+"\\n").encode()).decode(),"branch":"main"}
+    payload={"message":message,"content":base64.b64encode((json.dumps(obj,indent=2)+"\n").encode()).decode(),"branch":"main"}
     if sha: payload["sha"]=sha
     request("PUT",f"/repos/{REPO}/contents/{urllib.parse.quote(path,safe='/')}",WRITE,payload)
 def main():
     if not READ or not WRITE: raise SystemExit("DEPARTMENT_OPS=BLOCKED_CREDENTIAL_UNAVAILABLE")
-    if not RUNNER and GH_TOKEN and RUN.isdigit():\n        jobs=request("GET",f"/repos/bhagyamehta1-lab/ply-erp-builder/actions/runs/{RUN}/jobs?per_page=100",GH_TOKEN).get("jobs",[])\n        current=next((j for j in jobs if j.get("name")=="Public CEO command and worker engine"),None)\n        RUNNER=str((current or {}).get("runner_id") or "")\n    names=["state/ceo_command_audit.json","employees/department_roster.json","projects/ply_erp_backlog.json","state/autonomous_shift_checkpoints.json","state/learned_heuristics.json","state/codebase_index.json","finance_and_resource_ledger.json","legal_and_compliance_registry.json","customer_and_delivery_operations.json","human_accountability_charter.json","department_workflow_bindings.json"]
+    if not RUNNER and GH_TOKEN and RUN.isdigit():
+        jobs=request("GET",f"/repos/bhagyamehta1-lab/ply-erp-builder/actions/runs/{RUN}/jobs?per_page=100",GH_TOKEN).get("jobs",[])
+        current=next((j for j in jobs if j.get("name")=="Public CEO command and worker engine"),None)
+        RUNNER=str((current or {}).get("runner_id") or "")
+    names=["state/ceo_command_audit.json","employees/department_roster.json","projects/ply_erp_backlog.json","state/autonomous_shift_checkpoints.json","state/learned_heuristics.json","state/codebase_index.json","finance_and_resource_ledger.json","legal_and_compliance_registry.json","customer_and_delivery_operations.json","human_accountability_charter.json","department_workflow_bindings.json"]
     d={p:get(p)[0] for p in names}; audit=d[names[0]]; hold=audit.get("system_status")=="SAFE_HOLD" and audit.get("safety",{}).get("execution_hold") is True and audit.get("safety",{}).get("builds_enabled") is False and audit.get("safety",{}).get("dispatch_enabled") is False
     if not hold: raise SystemExit("DEPARTMENT_OPS=BLOCKED_UNEXPECTED_SAFETY_STATE")
     roster=d["employees/department_roster.json"].get("employees",[]); tasks={x["task_id"]:x for x in d["projects/ply_erp_backlog.json"].get("requirements",[])}
