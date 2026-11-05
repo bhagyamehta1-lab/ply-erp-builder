@@ -224,6 +224,21 @@ def preflight():
     if missing_memory:
         raise RunnerError("A roster employee is missing a dedicated universal memory node.")
 
+    preview_task = next((item for item in backlog.get("requirements", []) if item.get("task_id") == "PLY-0003"), None)
+    preview_grant = roadmap.get("safety", {}).get("task_scoped_build_authorizations", {}).get("PLY-0003", {})
+    if not preview_task or not preview_grant or preview_task.get("verification_mode") != "PREVIEW_ONLY":
+        raise RunnerError("PLY-0003 preview-only task/grant schema is missing.")
+    preview_reads = preview_task.get("read_file_allowlist")
+    preview_destinations = preview_task.get("preview_destination_allowlist")
+    if (preview_task.get("explicit_file_allowlist") != []
+            or preview_grant.get("explicit_file_allowlist") != []
+            or not isinstance(preview_reads, list) or len(preview_reads) != 34
+            or len(preview_reads) != len(set(preview_reads))
+            or preview_grant.get("read_file_allowlist") != preview_reads
+            or not isinstance(preview_destinations, list) or len(preview_destinations) != 3
+            or preview_grant.get("preview_destination_allowlist") != preview_destinations):
+        raise RunnerError("PLY-0003 PREVIEW_ONLY schema must enforce 34 reads, zero product writes and three exact private preview destinations.")
+
     required_heuristic_fields = {"id", "trigger_pattern", "root_cause", "mandatory_fix", "verified_in_run"}
     if (not isinstance(index, dict) or not index.get("last_verified_commit")
             or index.get("storage_schema_version") != 5
@@ -240,6 +255,9 @@ def preflight():
         or audit_safety.get("builds_enabled") is not True
         or audit_safety.get("dispatch_enabled") is not True
     )
+    if audit_hold and any(grant_item.get("authorized") is True for grant_item in safety.get("task_scoped_build_authorizations", {}).values()):
+        raise RunnerError("CEO audit SAFE_HOLD conflicts with an active task grant; fail closed.")
+
     active_tasks = [item for item in backlog.get("requirements", [])
                     if item.get("status") == "IN_PROGRESS" and item.get("dispatch_authorized") is True]
     task = active_tasks[0] if len(active_tasks) == 1 else None
