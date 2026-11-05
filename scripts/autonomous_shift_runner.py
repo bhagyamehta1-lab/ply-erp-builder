@@ -239,6 +239,25 @@ def preflight():
             or preview_grant.get("preview_destination_allowlist") != preview_destinations):
         raise RunnerError("PLY-0003 PREVIEW_ONLY schema must enforce 34 reads, zero product writes and three exact private preview destinations.")
 
+    for approved_task in backlog.get("requirements", []):
+        if approved_task.get("approval_state") != "APPROVED" or approved_task.get("status") not in ("IN_PROGRESS", "IN_PROGRESS_BLOCKED", "APPROVED_QUEUED"):
+            continue
+        task_id_check = approved_task.get("task_id")
+        grant_check = roadmap.get("safety", {}).get("task_scoped_build_authorizations", {}).get(task_id_check, {})
+        read_check = approved_task.get("read_file_allowlist")
+        write_check = approved_task.get("explicit_file_allowlist")
+        if (not isinstance(read_check, list) or not read_check
+                or len(read_check) != len(set(read_check))
+                or not isinstance(write_check, list)
+                or grant_check.get("read_file_allowlist") != read_check
+                or grant_check.get("explicit_file_allowlist") != write_check):
+            raise RunnerError("Approved task read/write allowlists are missing, duplicated or differ from the exact grant.")
+        if approved_task.get("verification_mode") == "PREVIEW_ONLY":
+            if write_check != []:
+                raise RunnerError("PREVIEW_ONLY task has a non-empty product write allowlist.")
+        elif not write_check or not set(write_check).issubset(set(read_check)):
+            raise RunnerError("Implementation task write allowlist must be non-empty and a subset of the exact read allowlist.")
+
     required_heuristic_fields = {"id", "trigger_pattern", "root_cause", "mandatory_fix", "verified_in_run"}
     if (not isinstance(index, dict) or not index.get("last_verified_commit")
             or index.get("storage_schema_version") != 5
