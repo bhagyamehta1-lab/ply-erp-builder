@@ -165,15 +165,22 @@ def preflight():
     task_id = task.get("task_id") if task else None
     safety = roadmap.get("safety", {})
     grant = safety.get("task_scoped_build_authorizations", {}).get(task_id, {}) if task_id else {}
+    expected_candidate = task.get("candidate_commit") or index.get("last_verified_commit") if task else None
     scoped_build = (
         grant.get("authorized") is True
         and grant.get("task_id") == task_id
         and grant.get("allowed_repository") == PRODUCT
         and bool(grant.get("allowed_branch"))
         and bool(task.get("explicit_file_allowlist"))
+        and grant.get("candidate_sha") == expected_candidate
+        and grant.get("explicit_file_allowlist") == task.get("explicit_file_allowlist")
     )
-    build_allowed = safety.get("builds_enabled") is True or scoped_build
+    # Global and task-scoped authorization are conjunctive; neither can override the other.
+    build_allowed = safety.get("builds_enabled") is True and scoped_build
     candidate_branch = grant.get("allowed_branch", "main") if task else "main"
+    candidate_sha = grant.get("candidate_sha") or expected_candidate or ""
+    file_allowlist = task.get("explicit_file_allowlist", []) if task else []
+    verification_mode = task.get("verification_mode", "TASK_BUILD") if task else "NONE"
     event = os.environ.get("GITHUB_EVENT_NAME", "unknown")
     authorized = False
     state = "BLOCKED_UNKNOWN_STATE"
@@ -216,7 +223,7 @@ def preflight():
         "model_patch_applied": False,
     }
     append_checkpoint(record, write_token)
-    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"]), "task_id": task_id or "", "candidate_branch": candidate_branch, "baseline_sha": index.get("last_verified_commit", "")})
+    output({"authorized": authorized, "policy_state": state, "loaded_heuristics": len(heuristics["rules"]), "task_id": task_id or "", "candidate_branch": candidate_branch, "baseline_sha": index.get("last_verified_commit", ""), "candidate_sha": candidate_sha, "file_allowlist": json.dumps(file_allowlist, separators=(",", ":")), "verification_mode": verification_mode})
     print(f"AUTONOMY_POLICY={state}")
     print(f"AUTONOMY_TASK_ID={task_id or 'NONE'}")
     print(f"AUTONOMY_VERIFICATION_AUTHORIZED={'YES' if authorized else 'NO'}")
