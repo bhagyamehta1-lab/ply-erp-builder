@@ -118,7 +118,8 @@ jobs:
           git init --quiet "$WORKSPACE/PLY_ERP"
           cd "$WORKSPACE/PLY_ERP"
           git remote add origin https://github.com/bhagyamehta1-lab/PLY_ERP.git
-          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" fetch --quiet --filter=blob:none --depth 50 origin "$CANDIDATE_BRANCH"
+          git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
+          git fetch --quiet --filter=blob:none --depth 50 origin "$CANDIDATE_BRANCH"
           unset AUTH PLY_TOKEN
           test -n "$CANDIDATE_SHA"
           git cat-file -e "$CANDIDATE_SHA^{commit}"
@@ -135,6 +136,7 @@ jobs:
           PY
           git sparse-checkout set --no-cone --stdin < "$WORKSPACE/read-allowlist.txt"
           git checkout --quiet --detach "$CANDIDATE_SHA"
+          git config --local --unset-all http.https://github.com/.extraheader
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           python - <<'PY'
           import json, os, pathlib, subprocess
