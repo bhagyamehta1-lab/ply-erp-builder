@@ -375,6 +375,47 @@ def preflight():
     print("LEARNED_HEURISTICS_RULE_COUNT=" + str(len(heuristics["rules"])))
 
     audit_safety = audit.get("safety", {})
+    roadmap_safety = roadmap.get("safety", {})
+    backlog_safety = backlog.get("safety", {})
+    authoritative_statuses = (
+        audit.get("system_status"),
+        audit.get("enterprise_status"),
+        roadmap.get("status"),
+        roadmap.get("system_status"),
+        backlog.get("system_status"),
+        backlog.get("enterprise_status"),
+    )
+    if not authoritative_statuses[0] or any(value != authoritative_statuses[0] for value in authoritative_statuses):
+        raise RunnerError("CEO audit, roadmap and backlog system statuses are inconsistent.")
+    for gate in ("execution_hold", "dispatch_enabled", "builds_enabled", "releases_enabled", "deployments_enabled"):
+        values = (audit_safety.get(gate), roadmap_safety.get(gate), backlog_safety.get(gate))
+        if any(value is None for value in values) or not (values[0] == values[1] == values[2]):
+            raise RunnerError("CEO audit, roadmap and backlog safety gate mismatch: " + gate)
+    tasks_by_id = {item.get("task_id"): item for item in backlog.get("requirements", [])}
+    in_progress_count = sum(1 for item in backlog.get("requirements", [])
+                            if item.get("status") in ("IN_PROGRESS", "IN_PROGRESS_BLOCKED"))
+    dispatch_count = sum(1 for item in backlog.get("requirements", [])
+                         if item.get("dispatch_authorized") is True)
+    if audit_safety.get("active_in_progress_task_count") != in_progress_count:
+        raise RunnerError("CEO audit active in-progress task count does not match the backlog.")
+    if audit_safety.get("active_dispatch_task_count") != dispatch_count:
+        raise RunnerError("CEO audit active dispatch count does not match the backlog.")
+    pipeline = roadmap.get("active_pipeline_task", {})
+    pipeline_task = tasks_by_id.get(pipeline.get("task_id"), {})
+    if (not pipeline_task
+            or pipeline.get("branch") != pipeline_task.get("branch")
+            or pipeline.get("candidate_sha") != pipeline_task.get("candidate_commit")
+            or pipeline.get("read_allowlist_count") != len(pipeline_task.get("read_file_allowlist", []))
+            or pipeline.get("explicit_file_allowlist_count") != len(pipeline_task.get("explicit_file_allowlist", []))
+            or pipeline.get("dispatch_authorized") is not pipeline_task.get("dispatch_authorized")):
+        raise RunnerError("Roadmap active pipeline descriptor differs from its canonical backlog task.")
+    for task_id, grant_state in audit_safety.get("task_scoped_build_authorizations", {}).items():
+        grant = roadmap_safety.get("task_scoped_build_authorizations", {}).get(task_id, {})
+        if grant_state in ("REVOKED", "SUSPENDED_GLOBAL_SAFE_HOLD") and grant.get("authorized") is True:
+            raise RunnerError("CEO audit grant state conflicts with roadmap authorization: " + task_id)
+    print("CEO_AUDIT_ROADMAP_BACKLOG_RECONCILIATION=PASS")
+
+    audit_safety = audit.get("safety", {})
     audit_hold = (
         os.environ.get("CEO_AUDIT_GATE_HOLD", "").casefold() == "true"
         or audit.get("system_status") == "SAFE_HOLD"
