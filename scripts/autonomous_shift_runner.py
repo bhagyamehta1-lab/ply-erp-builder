@@ -229,6 +229,7 @@ def preflight():
         and grant.get("explicit_file_allowlist") == task.get("explicit_file_allowlist")
         and read_allowlist_valid
         and grant.get("read_file_allowlist") == read_file_allowlist
+        and task.get("read_file_allowlist") == read_file_allowlist
     )
     # Global and task-scoped authorization are conjunctive; neither can override the other.
     build_allowed = (safety.get("builds_enabled") is True and safety.get("dispatch_enabled") is True
