@@ -24,7 +24,9 @@ PLY_READ_TOKEN = os.environ.get("HQ_TO_PLY_ERP_TOKEN", "")
 
 
 class SafeFailure(Exception):
-    pass
+    def __init__(self, message: str, category: str = "UNKNOWN_SAFE_FAILURE"):
+        super().__init__(message)
+        self.category = category
 
 
 def utc_now() -> str:
@@ -49,10 +51,19 @@ def request_json(method: str, path: str, token: str, payload=None):
             raw = response.read()
             return json.loads(raw.decode("utf-8")) if raw else {}
     except urllib.error.HTTPError as exc:
-        # Never print response bodies, request URLs containing private data, or tokens.
-        raise SafeFailure(f"GitHub API request failed with HTTP {exc.code}.") from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        raise SafeFailure("GitHub API request failed; details suppressed.") from None
+        # Map only the HTTP status to a safe category; never print response bodies or credentials.
+        category = {
+            401: "TOKEN_EXPIRED_OR_INVALID",
+            403: "PERMISSION_DENIED",
+            404: "RESOURCE_NOT_FOUND",
+            409: "WRITE_CONFLICT",
+            422: "SCHEMA_OR_VALIDATION_MISMATCH",
+        }.get(exc.code, "GITHUB_SERVICE_ERROR" if exc.code >= 500 else "API_REQUEST_REJECTED")
+        raise SafeFailure("GitHub API request failed; details suppressed.", category) from None
+    except (urllib.error.URLError, TimeoutError):
+        raise SafeFailure("GitHub API transport failed; details suppressed.", "NETWORK_OR_TIMEOUT") from None
+    except json.JSONDecodeError:
+        raise SafeFailure("GitHub API returned invalid JSON; details suppressed.", "SCHEMA_MISMATCH") from None
 
 
 def get_file(path: str, token: str):
@@ -64,7 +75,7 @@ def get_file(path: str, token: str):
         raw = base64.b64decode(doc["content"], validate=False)
         return raw.decode("utf-8"), doc["sha"]
     except (ValueError, UnicodeDecodeError):
-        raise SafeFailure("HQ file could not be decoded.") from None
+        raise SafeFailure("HQ file could not be decoded.", "SCHEMA_MISMATCH") from None
 
 
 def put_file(path: str, content: str, message: str, token: str):
@@ -90,7 +101,7 @@ def json_from_file(path: str, token: str):
     try:
         return json.loads(content), sha
     except json.JSONDecodeError:
-        raise SafeFailure("HQ state JSON is invalid.") from None
+        raise SafeFailure("HQ state JSON is invalid.", "SCHEMA_MISMATCH") from None
 
 
 def command_kind(body: str):
@@ -172,7 +183,7 @@ def main() -> int:
         backlog = json.loads(backlog_text)
         audit = json.loads(audit_text)
     except json.JSONDecodeError:
-        raise SafeFailure("HQ state JSON could not be parsed.") from None
+        raise SafeFailure("HQ state JSON could not be parsed.", "SCHEMA_MISMATCH") from None
 
     try:
         compile(orchestrator_text, "autonomous_orchestrator.py", "exec")
@@ -180,23 +191,32 @@ def main() -> int:
         raise SafeFailure("HQ orchestrator syntax validation failed; details suppressed.") from None
 
     status = roadmap.get("system_status", roadmap.get("status"))
+    audit_status = audit.get("system_status")
+    audit_safety = audit.get("safety", {})
     safe_hold = (
-        status == "SAFE_HOLD"
-        and roadmap.get("safety", {}).get("execution_hold") is True
-        and roadmap.get("safety", {}).get("dispatch_enabled") is False
-        and roadmap.get("bridge", {}).get("dispatch_enabled") is False
-        and backlog.get("enterprise_status") == "SAFE_HOLD"
+        audit_status == "SAFE_HOLD"
+        or audit_safety.get("safe_hold") is True
+        or audit_safety.get("execution_hold") is True
+        or audit_safety.get("builds_enabled") is not True
+        or audit_safety.get("dispatch_enabled") is not True
     )
     authorized = [item for item in backlog.get("requirements", []) if item.get("dispatch_authorized") is True]
     active_operations = (
-        status == "ACTIVE_OPERATIONS"
+        audit_status == "ACTIVE_OPERATIONS"
+        and audit_safety.get("safe_hold") is False
+        and audit_safety.get("execution_hold") is False
+        and audit_safety.get("builds_enabled") is True
+        and audit_safety.get("dispatch_enabled") is True
+        and status == "ACTIVE_OPERATIONS"
         and roadmap.get("safety", {}).get("execution_hold") is False
         and roadmap.get("safety", {}).get("dispatch_enabled") is True
         and roadmap.get("bridge", {}).get("dispatch_enabled") is True
         and backlog.get("enterprise_status") == "ACTIVE_OPERATIONS"
     )
-    if not (safe_hold or active_operations):
-        raise SafeFailure("HQ state failed SAFE_HOLD/ACTIVE_OPERATIONS scope validation; inbox processing stopped.")
+    if safe_hold:
+        raise SafeFailure("CEO audit hold disables inbox synchronization.", "SAFE_HOLD")
+    if not active_operations:
+        raise SafeFailure("HQ state failed master-audit reconciliation.", "STATE_RECONCILIATION_REQUIRED")
 
     # All downloaded private state and orchestration code is confined to tmpfs.
     files = {
@@ -219,6 +239,10 @@ def main() -> int:
         if "pull_request" not in issue
         and (issue.get("user") or {}).get("login") == OWNER
     ]
+    if not owner_issues:
+        print("CEO_INBOX_DIAGNOSTIC=EMPTY_QUEUE")
+    else:
+        print("CEO_INBOX_DIAGNOSTIC=QUEUE_PRESENT")
 
     processed_legacy = legacy_processed_issue_ids(audit)
     commands_processed = 0
@@ -437,6 +461,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except SafeFailure:
-        print("CEO_ENGINE_RESULT=SAFE_FAILURE_DETAILS_SUPPRESSED")
+    except SafeFailure as exc:
+        print("CEO_ENGINE_RESULT=" + exc.category)
         raise SystemExit(2)
