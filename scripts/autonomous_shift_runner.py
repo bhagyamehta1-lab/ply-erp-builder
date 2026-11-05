@@ -79,6 +79,12 @@ def self_test_write_path_guards() -> None:
         except RunnerError:
             continue
         raise RunnerError("Write-path security self-test failed: an unauthorized target was accepted.")
+    try:
+        request_json("PUT", f"{API}/repos/{PRODUCT}/contents/src/App.tsx", "", {})
+    except RunnerError:
+        pass
+    else:
+        raise RunnerError("Write-path security self-test failed: unauthorized GitHub write was not rejected before network access.")
 
 
 class RunnerError(RuntimeError):
