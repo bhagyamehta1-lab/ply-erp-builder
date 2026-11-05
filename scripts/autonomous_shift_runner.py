@@ -370,6 +370,9 @@ def preflight():
             or not isinstance(heuristics, dict) or not isinstance(heuristics.get("rules"), list)
             or any(not isinstance(rule, dict) or not required_heuristic_fields.issubset(rule) for rule in heuristics["rules"])):
         raise RunnerError("Codebase index or learned heuristics schema is invalid.")
+    print("CODEBASE_INDEX_SCHEMA=PASS")
+    print("LEARNED_HEURISTICS_SCHEMA=PASS")
+    print("LEARNED_HEURISTICS_RULE_COUNT=" + str(len(heuristics["rules"])))
 
     audit_safety = audit.get("safety", {})
     audit_hold = (
