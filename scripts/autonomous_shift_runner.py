@@ -222,6 +222,8 @@ def preflight():
             or not isinstance(graph, dict) or not isinstance(checkpoints.get("checkpoints"), list)
             or finance.get("policy", {}).get("external_cloud_spend_limit") != 0
             or finance.get("policy", {}).get("external_cloud_spend_allowed") is not False
+            or roadmap.get("safety", {}).get("governance_change", {}).get("builds_enabled") is not False
+            or roadmap.get("safety", {}).get("governance_change", {}).get("releases_enabled") is not False
             or legal.get("privacy_security", {}).get("offline_first_required") is not True
             or legal.get("privacy_security", {}).get("zero_pii_exfiltration") is not True
             or delivery.get("release_integrity", {}).get("sha256_manifest_required") is not True
