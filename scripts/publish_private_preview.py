@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -18,6 +19,43 @@ RUN_ID = os.environ.get("GITHUB_RUN_ID", "")
 ROOT = pathlib.Path(os.environ.get("PREVIEW_DIR", "/dev/shm/enterprise_workspace/CEO_PREVIEW"))
 FORBIDDEN_NAMES = {".env", ".env.local", ".env.production", "id_rsa", "credentials.json"}
 FORBIDDEN_SUFFIXES = {".map", ".ts", ".tsx", ".sqlite", ".db"}
+ALLOWED_PREVIEW_FILES = frozenset({
+    "ply-erp-ceo-preview-build.zip",
+    "CEO_APP_WALKTHROUGH.md",
+    "preview-manifest.json",
+})
+
+
+def validate_preview_write_target(repository, path):
+    if repository != REPOSITORY:
+        raise SystemExit("Preview write rejected: repository is not Enterprise-HQ.")
+    prefix = "previews/PLY-0003/" + CANDIDATE + "/"
+    if not path.startswith(prefix):
+        raise SystemExit("Preview write rejected: path is outside the exact PLY-0003 candidate directory.")
+    relative = path[len(prefix):]
+    if relative not in ALLOWED_PREVIEW_FILES or "/" in relative or "\\\\" in relative:
+        raise SystemExit("Preview write rejected: file is not one of the three explicit private preview destinations.")
+    return path
+
+
+def self_test_write_path_guards():
+    allowed = "previews/PLY-0003/" + CANDIDATE + "/preview-manifest.json"
+    assert validate_preview_write_target(REPOSITORY, allowed) == allowed
+    blocked = (
+        ("bhagyamehta1-lab/PLY_ERP", allowed),
+        (REPOSITORY, "state/ceo_command_audit.json"),
+        (REPOSITORY, "previews/PLY-0003/" + CANDIDATE + "/extra.zip"),
+        (REPOSITORY, "previews/PLY-0003/" + CANDIDATE + "/../preview-manifest.json"),
+        ("bhagyamehta1-lab/ply-erp-builder", allowed),
+    )
+    for repository, path in blocked:
+        try:
+            validate_preview_write_target(repository, path)
+        except SystemExit:
+            continue
+        raise SystemExit("Preview write-path self-test failed: an unauthorized target was accepted.")
+
+self_test_write_path_guards()
 
 if not TOKEN:
     raise SystemExit("Private preview destination credential is unavailable.")
@@ -34,6 +72,11 @@ HEADERS = {
 }
 
 def api_request(method, path, payload=None, allow_404=False):
+    if method.upper() not in ("GET", "HEAD"):
+        prefix = "/repos/" + REPOSITORY + "/contents/"
+        if method.upper() != "PUT" or not path.startswith(prefix):
+            raise SystemExit("Private preview GitHub write rejected: only exact Enterprise-HQ preview Contents writes are allowed.")
+        validate_preview_write_target(REPOSITORY, urllib.parse.unquote(path[len(prefix):].split("?", 1)[0]))
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(API + path, data=data, headers=HEADERS, method=method)
     try:
@@ -73,7 +116,9 @@ if len(archive_bytes) > 80 * 1024 * 1024:
 prefix = "previews/PLY-0003/" + CANDIDATE + "/"
 
 def upload(relative_path, content, message):
-    path = prefix + relative_path
+    if relative_path not in ALLOWED_PREVIEW_FILES:
+        raise SystemExit("Private preview upload rejected: destination is not explicitly allowlisted.")
+    path = validate_preview_write_target(REPOSITORY, prefix + relative_path)
     existing = api_request(
         "GET",
         "/repos/" + REPOSITORY + "/contents/" + path + "?ref=main",
