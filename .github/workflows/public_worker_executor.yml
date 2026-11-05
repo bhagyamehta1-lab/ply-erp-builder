@@ -104,6 +104,7 @@ jobs:
           BASELINE_SHA: ${{ steps.autonomy.outputs.baseline_sha }}
           CANDIDATE_SHA: ${{ steps.autonomy.outputs.candidate_sha }}
           FILE_ALLOWLIST_JSON: ${{ steps.autonomy.outputs.file_allowlist }}
+          READ_FILE_ALLOWLIST_JSON: ${{ steps.autonomy.outputs.read_file_allowlist }}
           VERIFICATION_MODE: ${{ steps.autonomy.outputs.verification_mode }}
           TASK_ID: ${{ steps.autonomy.outputs.task_id }}
         shell: bash
@@ -113,27 +114,49 @@ jobs:
           AUTH="$(printf 'x-access-token:%s' "$PLY_TOKEN" | base64 -w0)"
           test -n "$CANDIDATE_BRANCH"
           test -n "$BASELINE_SHA"
-          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth 50 --branch "$CANDIDATE_BRANCH" https://github.com/bhagyamehta1-lab/PLY_ERP.git "$WORKSPACE/PLY_ERP"
-          unset AUTH PLY_TOKEN
+          test -n "$READ_FILE_ALLOWLIST_JSON"
+          git init --quiet "$WORKSPACE/PLY_ERP"
           cd "$WORKSPACE/PLY_ERP"
+          git remote add origin https://github.com/bhagyamehta1-lab/PLY_ERP.git
+          git -c "http.extraheader=AUTHORIZATION: basic $AUTH" fetch --quiet --filter=blob:none --depth 50 origin "$CANDIDATE_BRANCH"
+          unset AUTH PLY_TOKEN
           test -n "$CANDIDATE_SHA"
           git cat-file -e "$CANDIDATE_SHA^{commit}"
+          git sparse-checkout init --no-cone
+          python - <<'PY'
+          import json, os, pathlib
+          allow = json.loads(os.environ["READ_FILE_ALLOWLIST_JSON"])
+          if not allow or len(allow) != len(set(allow)):
+              raise SystemExit("Read allowlist is empty or contains duplicates")
+          if any(not isinstance(p,str) or not p or p.startswith("/") or ".." in pathlib.PurePosixPath(p).parts for p in allow):
+              raise SystemExit("Read allowlist contains an unsafe path")
+          pathlib.Path(os.environ["WORKSPACE"], "read-allowlist.txt").write_text(
+              "\n".join("/" + p for p in allow) + "\n", encoding="utf-8")
+          PY
+          git sparse-checkout set --no-cone --stdin < "$WORKSPACE/read-allowlist.txt"
           git checkout --quiet --detach "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           python - <<'PY'
-          import json, os, subprocess
-          task = os.environ["TASK_ID"]
+          import json, os, pathlib, subprocess
           mode = os.environ["VERIFICATION_MODE"]
-          allowed = set(json.loads(os.environ["FILE_ALLOWLIST_JSON"]))
-          if not allowed: raise SystemExit("Task file allowlist is empty")
+          write_allowed = set(json.loads(os.environ["FILE_ALLOWLIST_JSON"]))
+          read_allowed = set(json.loads(os.environ["READ_FILE_ALLOWLIST_JSON"]))
           tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD'],text=True).splitlines())
-          if mode == "PREVIEW_ONLY":
-              if not allowed.issubset(tracked): raise SystemExit("Preview allowlist contains missing paths")
-              print("PLY_ERP_READ_ALLOWLIST=PASS")
-          else:
+          if not write_allowed or not read_allowed or not write_allowed.issubset(read_allowed):
+              raise SystemExit("Write allowlist must be a subset of the explicit read allowlist")
+          if not read_allowed.issubset(tracked):
+              raise SystemExit("Read allowlist contains paths missing from the candidate commit")
+          materialized = {p.as_posix() for p in pathlib.Path(".").rglob("*")
+                          if p.is_file() and ".git" not in p.parts}
+          if materialized != read_allowed:
+              raise SystemExit("Sparse checkout materialization differs from the exact read allowlist")
+          if mode != "PREVIEW_ONLY":
               changed = set(subprocess.check_output(['git','diff','--name-only',os.environ["BASELINE_SHA"]+'...HEAD'],text=True).splitlines())
-              if not changed or not changed.issubset(allowed): raise SystemExit("Task file allowlist validation failed")
-              print("PLY_ERP_CHANGE_ALLOWLIST=PASS")
+              if not changed or not changed.issubset(write_allowed):
+                  raise SystemExit("Task changed files exceed the exact write allowlist")
+              print("PLY_ERP_WRITE_ALLOWLIST=PASS")
+          print("PLY_ERP_READ_ALLOWLIST=PASS")
+          print("READ_ALLOWLIST_MATERIALIZED_COUNT=" + str(len(materialized)))
           print("PRIVATE_SOURCE_CONTENT_IN_LOGS=NO")
           PY
           git rev-parse HEAD > "$WORKSPACE/PLY_ERP_COMMIT_SHA"
