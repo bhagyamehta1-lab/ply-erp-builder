@@ -69,7 +69,7 @@ jobs:
                   or safety.get("builds_enabled") is not True
                   or safety.get("dispatch_enabled") is not True)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"safe_hold={'true' if hold else 'false'}\\n")
+              output.write(f"safe_hold={'true' if hold else 'false'}\n")
           print("CEO_AUDIT_GATE=" + ("SAFE_HOLD" if hold else "ACTIVE_POLICY"))
           print("PRIVATE_SOURCE_CHECKOUT=NOT_PERFORMED_BY_GATE")
           PY
@@ -173,8 +173,12 @@ jobs:
           write_allowed = set(json.loads(os.environ["FILE_ALLOWLIST_JSON"]))
           read_allowed = set(json.loads(os.environ["READ_FILE_ALLOWLIST_JSON"]))
           tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD'],text=True).splitlines())
-          if not write_allowed or not read_allowed or not write_allowed.issubset(read_allowed):
-              raise SystemExit("Write allowlist must be a subset of the explicit read allowlist")
+          if not read_allowed or not write_allowed.issubset(read_allowed):
+              raise SystemExit("Read allowlist must be non-empty and product writes must be a subset of reads")
+          if mode == "PREVIEW_ONLY" and write_allowed:
+              raise SystemExit("Preview-only tasks must have a zero-product-write boundary")
+          if mode != "PREVIEW_ONLY" and not write_allowed:
+              raise SystemExit("Implementation tasks require an explicit non-empty product write allowlist")
           if not read_allowed.issubset(tracked):
               raise SystemExit("Read allowlist contains paths missing from the candidate commit")
           materialized = {p.as_posix() for p in pathlib.Path(".").rglob("*")
