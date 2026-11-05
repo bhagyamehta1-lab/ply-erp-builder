@@ -282,6 +282,7 @@ def preflight():
         if not callable(hq_write_test):
             raise RunnerError("Enterprise-HQ orchestrator is missing its mandatory write-path security self-test.")
         hq_write_test()
+        print("WRITE_PATH_SECURITY_SELF_TESTS=PASS")
     except SyntaxError as exc:
         raise RunnerError(f"HQ orchestrator syntax validation failed at line {exc.lineno}: {exc.msg}.") from exc
     if "--prepare-shift" not in orchestrator or "--record-qa-heuristic" not in orchestrator:
