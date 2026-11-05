@@ -125,6 +125,29 @@ jobs:
           set -euo pipefail
           python scripts/ceo_hq_worker.py
 
+      - name: Run non-mutating CEO UAT state-machine verification
+        if: success() && steps.safety_gate.outputs.safe_hold == 'true'
+        env:
+          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN || secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ceo_uat_state_machine_test.py
+          python scripts/ceo_uat_state_machine_test.py
+
+      - name: Execute governance-only department workflows
+        if: success() && steps.safety_gate.outputs.safe_hold == 'true'
+        env:
+          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN || secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/department_ops_verification.py
+          python scripts/department_ops_verification.py
+
       - name: Check out scoped private PLY ERP candidate into tmpfs
         id: private_checkout
         if: steps.autonomy.outputs.authorized == 'true'
