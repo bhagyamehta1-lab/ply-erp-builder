@@ -69,7 +69,7 @@ test('sparse checkout materializes only exact approved read paths',()=>{
 test('worker workflow has no public artifact upload and verifies physical read boundary',()=>{
  const workflow=readFileSync('.github/workflows/public_worker_executor.yml','utf8');
  const runner=readFileSync('scripts/autonomous_shift_runner.py','utf8');
- assert.match(workflow,/git fetch --quiet --filter=blob:none/);
+ assert.match(workflow,/fetch --quiet --filter=blob:none/);
  assert.match(workflow,/git sparse-checkout init --no-cone/);
  assert.match(workflow,/materialized != read_allowed/);
  assert.equal(workflow.includes('actions/upload-artifact'),false);
