@@ -208,7 +208,7 @@ jobs:
 
       - name: Run Rust formatting and native tests
         id: rust
-        if: steps.autonomy.outputs.authorized == 'true'
+        if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode != 'PREVIEW_ONLY'
         working-directory: /dev/shm/enterprise_workspace/PLY_ERP
         shell: bash
         run: |
