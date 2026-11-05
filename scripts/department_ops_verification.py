@@ -5,7 +5,33 @@ REPO="bhagyamehta1-lab/Enterprise-HQ"; API="https://api.github.com"
 READ=os.environ.get("ENTERPRISE_HQ_READ_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN","")
 WRITE=os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN","")
 RUN=os.environ.get("GITHUB_RUN_ID",""); RUNNER=os.environ.get("RUNNER_ID",""); GH_TOKEN=os.environ.get("GITHUB_TOKEN","")
+HQ_WRITE_PATHS=frozenset({
+    "operations/department_outputs/EMP-01_architecture_boundary_schema_ledger.json",
+    "operations/department_outputs/EMP-02_build_reproducibility_zero_regression_checklist.json",
+    "operations/department_outputs/EMP-03_automated_test_preview_verification_matrix.json",
+    "operations/department_outputs/EMP-04_runner_attestation_allowlist_secret_hygiene_audit.json",
+    "operations/department_outputs/EMP-05_headcount_cost_kaizen_ledger.json",
+    "state/minutes_of_meeting.json",
+})
+def validate_write_target(repository,path):
+    if repository!=REPO: raise SystemExit("Department write rejected: repository outside Enterprise-HQ.")
+    decoded=urllib.parse.unquote(path.split("?",1)[0])
+    if not decoded or decoded.startswith("/") or "\\\\" in decoded or any(p in ("",".","..") for p in decoded.split("/")) or decoded not in HQ_WRITE_PATHS:
+        raise SystemExit("Department write rejected: path outside exact governance allowlist.")
+    return decoded
+def self_test_write_path_guards():
+    assert validate_write_target(REPO,"state/minutes_of_meeting.json")=="state/minutes_of_meeting.json"
+    blocked=(("bhagyamehta1-lab/PLY_ERP","state/minutes_of_meeting.json"),(REPO,"state/ceo_command_audit.json"),(REPO,"operations/department_outputs/EMP-06_unknown.json"),(REPO,"operations/department_outputs/../state/ceo_command_audit.json"),("bhagyamehta1-lab/ply-erp-builder","state/minutes_of_meeting.json"))
+    for repository,path in blocked:
+        try: validate_write_target(repository,path)
+        except SystemExit: continue
+        raise SystemExit("Department write-path self-test failed.")
 def request(method,path,token,payload=None):
+    if method.upper() not in ("GET","HEAD"):
+        prefix=f"/repos/{REPO}/contents/"
+        if method.upper()!="PUT" or not path.startswith(prefix):
+            raise SystemExit("Department GitHub write rejected: endpoint outside Enterprise-HQ governance allowlist.")
+        validate_write_target(REPO,path[len(prefix):])
     data=None if payload is None else json.dumps(payload).encode()
     req=urllib.request.Request(API+path,data=data,method=method,headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
     with urllib.request.urlopen(req,timeout=25) as r: raw=r.read()
@@ -14,12 +40,14 @@ def get(path):
     d=request("GET",f"/repos/{REPO}/contents/{urllib.parse.quote(path,safe='/')}?ref=main",READ)
     return json.loads(base64.b64decode(d["content"]).decode()),d["sha"]
 def put(path,obj,message):
+    validate_write_target(REPO,path)
     try: _,sha=get(path)
     except Exception: sha=None
     payload={"message":message,"content":base64.b64encode((json.dumps(obj,indent=2)+"\n").encode()).decode(),"branch":"main"}
     if sha: payload["sha"]=sha
     request("PUT",f"/repos/{REPO}/contents/{urllib.parse.quote(path,safe='/')}",WRITE,payload)
 def main():
+    self_test_write_path_guards()
     global RUNNER
     if not READ or not WRITE: raise SystemExit("DEPARTMENT_OPS=BLOCKED_CREDENTIAL_UNAVAILABLE")
     if not RUNNER and GH_TOKEN and RUN.isdigit():
