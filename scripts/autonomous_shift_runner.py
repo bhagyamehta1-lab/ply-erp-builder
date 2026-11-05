@@ -274,7 +274,7 @@ def preflight():
         or audit_safety.get("builds_enabled") is not True
         or audit_safety.get("dispatch_enabled") is not True
     )
-    if audit_hold and any(grant_item.get("authorized") is True for grant_item in safety.get("task_scoped_build_authorizations", {}).values()):
+    if audit_hold and any(grant_item.get("authorized") is True for grant_item in roadmap.get("safety", {}).get("task_scoped_build_authorizations", {}).values()):
         raise RunnerError("CEO audit SAFE_HOLD conflicts with an active task grant; fail closed.")
 
     active_tasks = [item for item in backlog.get("requirements", [])
