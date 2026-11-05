@@ -20,6 +20,7 @@ def put(path,obj,message):
     if sha: payload["sha"]=sha
     request("PUT",f"/repos/{REPO}/contents/{urllib.parse.quote(path,safe='/')}",WRITE,payload)
 def main():
+    global RUNNER
     if not READ or not WRITE: raise SystemExit("DEPARTMENT_OPS=BLOCKED_CREDENTIAL_UNAVAILABLE")
     if not RUNNER and GH_TOKEN and RUN.isdigit():
         jobs=request("GET",f"/repos/bhagyamehta1-lab/ply-erp-builder/actions/runs/{RUN}/jobs?per_page=100",GH_TOKEN).get("jobs",[])
