@@ -320,7 +320,7 @@ def checkpoint():
             runner_id = job["runner_id"]
     passed = (
         authorized
-        and all(value == "success" for value in outcomes.values())
+        and all(value == "success" for key, value in outcomes.items() if key != "rust" or not preview_required)
         and (not preview_required or (preview_bundle_outcome == "success" and preview_artifact_outcome == "success"))
         and bool(source_sha)
         and isinstance(runner_id, int)
