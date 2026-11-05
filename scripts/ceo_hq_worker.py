@@ -109,6 +109,8 @@ def command_kind(body: str):
     upper = raw.upper()
     if upper == "STATUS" or raw.casefold() in ("status report", "status batao"):
         return "STATUS"
+    if upper.startswith("CEO_SIGN_OFF "):
+        return "CEO_SIGN_OFF"
     if upper.startswith("INSPECT:") or upper.startswith("ASK:"):
         return "INSPECT"
     if upper.startswith("ADD:"):
@@ -222,8 +224,21 @@ def main() -> int:
     files = {
         "state/enterprise_roadmap.json": roadmap_text,
         "projects/ply_erp_backlog.json": backlog_text,
+        "state/ceo_command_audit.json": audit_text,
+        "state/minutes_of_meeting.json": json.dumps(minutes, ensure_ascii=False, indent=2) + "\\n",
+        "state/codebase_index.json": json.dumps(codebase_index, ensure_ascii=False, indent=2) + "\\n",
         "scripts/autonomous_orchestrator.py": orchestrator_text,
     }
+    required_state_files = [
+        "state/learned_heuristics.json", "state/autonomous_shift_checkpoints.json",
+        "state/universal_employee_brain.json", "state/project_knowledge_capsules.json",
+        "state/department_knowledge_graph.json", "projects/portfolio_registry.json",
+        "employees/department_roster.json", "protocols/enterprise_alignment_dna.md",
+        "protocols/boardroom_meeting_protocol.md", "protocols/autonomous_employee_shift.md",
+    ]
+    for relative in required_state_files:
+        content, _ = get_file(relative, READ_TOKEN)
+        files[relative] = content
     for relative, content in files.items():
         target = WORKSPACE / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -365,8 +380,9 @@ def main() -> int:
                     "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
                     "HOME": str(WORKSPACE),
                     "TMPDIR": str(WORKSPACE),
+                    "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
                 }
-                if PLY_READ_TOKEN:
+                if PLY_READ_TOKEN and kind == "INSPECT":
                     child_env["HQ_TO_PLY_ERP_TOKEN"] = PLY_READ_TOKEN
                 if os.environ.get("GITHUB_TOKEN"):
                     child_env["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
@@ -375,9 +391,17 @@ def main() -> int:
                 if os.environ.get("GH_MODELS_MODEL"):
                     child_env["GH_MODELS_MODEL"] = os.environ["GH_MODELS_MODEL"]
                 try:
-                    result = subprocess.run(
+                    orchestrator_command = (
                         [sys.executable, str(WORKSPACE / "scripts/autonomous_orchestrator.py"),
-                         "--command-text", body],
+                         "--mode", "ceo_sign_off", "--instruction", "|".join(body.strip().split()[1:])]
+                        if kind == "CEO_SIGN_OFF"
+                        else [sys.executable, str(WORKSPACE / "scripts/autonomous_orchestrator.py"),
+                              "--command-text", body]
+                    )
+                    if kind == "CEO_SIGN_OFF" and len(body.strip().split()) != 3:
+                        raise SafeFailure("CEO_SIGN_OFF command must contain task ID and exact candidate SHA.", "SCHEMA_MISMATCH")
+                    result = subprocess.run(
+                        orchestrator_command,
                         cwd=str(WORKSPACE),
                         env=child_env,
                         capture_output=True,
@@ -395,8 +419,14 @@ def main() -> int:
                     result_text = (result.stdout or "").strip() or "CEO command completed."
                     try:
                         backlog = json.loads((WORKSPACE / "projects/ply_erp_backlog.json").read_text(encoding="utf-8"))
+                        if kind == "CEO_SIGN_OFF":
+                            audit = json.loads((WORKSPACE / "state/ceo_command_audit.json").read_text(encoding="utf-8"))
+                            codebase_index = json.loads((WORKSPACE / "state/codebase_index.json").read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError):
-                        raise SafeFailure("Orchestrator output backlog was invalid.") from None
+                        raise SafeFailure("Orchestrator output governance state was invalid.", "SCHEMA_MISMATCH") from None
+                    if kind == "CEO_SIGN_OFF":
+                        put_file("state/codebase_index.json", json.dumps(codebase_index, ensure_ascii=False, indent=2) + "\\n",
+                                 "CEO UAT sign-off codebase index update", WRITE_TOKEN)
                     inquiries = backlog.get("ceo_inquiries", [])
                     if inquiries:
                         inquiries[-1]["source_issue_number"] = number
