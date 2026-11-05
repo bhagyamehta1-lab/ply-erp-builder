@@ -257,7 +257,7 @@ jobs:
               for name,migration in names:
                   f.write(f"- {name} — {migration}\n")
           PY
-          if find "$WORKSPACE/CEO_PREVIEW/dist" -type f \\( -name '*.map' -o -name '*.tsx' -o -name '*.ts' \\) | grep -q .; then
+          if find "$WORKSPACE/CEO_PREVIEW/dist" -type f \( -name '*.map' -o -name '*.tsx' -o -name '*.ts' \) | grep -q .; then
             echo "CEO_PREVIEW_SANITIZATION=FAIL"; exit 1
           fi
           echo "CEO_PREVIEW_BUNDLE=READY"
