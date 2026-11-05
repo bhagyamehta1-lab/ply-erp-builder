@@ -5,7 +5,7 @@ Pipeline nudge: consume the newly promoted PLY-0004 task on the next push run.
 Implementation candidate is pinned to the scoped PLY-0004 branch head; verify only its six-file allowlist.
 Reauthorized after exact-scope source diff review; proceed only when global and task grants both match.
 Controlled PLY-0003 sparse-read-boundary verification authorized; exact 34-file materialization only.
-Next active task PLY-0004 has a six-file write allowlist and 36-file verification read allowlist.
+Next active task PLY-0004 has a six-file write allowlist and 81-file verification read allowlist, including all exact Tauri build inputs.
 
 Reads the alignment DNA before any other HQ state. It never edits product source,
 never applies model-generated patches, and fails closed when authorization is absent.
