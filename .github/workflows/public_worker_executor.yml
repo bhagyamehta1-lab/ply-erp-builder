@@ -1,5 +1,5 @@
 name: Public Worker Executor
-# Task-scoped PLY-0002 candidate retry trigger; policy remains enforced by DNA-first preflight.
+# Task-scoped product verification and private CEO preview packaging; policy is enforced by DNA-first preflight.
 # Optional GitHub Models advisory is scoped to sanitized HQ metadata; deterministic policy remains authoritative.
 
 on:
@@ -11,7 +11,7 @@ on:
         type: choice
         options: [smoke_test, health_check, poll_hq, ceo_inbox_sync, execute_task]
       task_id:
-        description: "Task ID (product execution remains blocked under SAFE_HOLD)"
+        description: "Task ID (exact HQ policy and task-scoped grant required)"
         required: false
         type: string
   repository_dispatch:
@@ -35,7 +35,7 @@ jobs:
     name: Public CEO command and worker engine
     if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Enforce SAFE_HOLD task gate
         if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'execute_task') || (github.event_name == 'repository_dispatch' && github.event.client_payload.mode != 'smoke_test' && github.event.client_payload.mode != 'health_check')
@@ -102,6 +102,9 @@ jobs:
           WORKSPACE: /dev/shm/enterprise_workspace
           CANDIDATE_BRANCH: ${{ steps.autonomy.outputs.candidate_branch }}
           BASELINE_SHA: ${{ steps.autonomy.outputs.baseline_sha }}
+          CANDIDATE_SHA: ${{ steps.autonomy.outputs.candidate_sha }}
+          FILE_ALLOWLIST_JSON: ${{ steps.autonomy.outputs.file_allowlist }}
+          VERIFICATION_MODE: ${{ steps.autonomy.outputs.verification_mode }}
           TASK_ID: ${{ steps.autonomy.outputs.task_id }}
         shell: bash
         run: |
@@ -113,19 +116,25 @@ jobs:
           git -c "http.extraheader=AUTHORIZATION: basic $AUTH" clone --quiet --depth 50 --branch "$CANDIDATE_BRANCH" https://github.com/bhagyamehta1-lab/PLY_ERP.git "$WORKSPACE/PLY_ERP"
           unset AUTH PLY_TOKEN
           cd "$WORKSPACE/PLY_ERP"
-          git cat-file -e "$BASELINE_SHA^{commit}"
+          test -n "$CANDIDATE_SHA"
+          git cat-file -e "$CANDIDATE_SHA^{commit}"
+          git checkout --quiet --detach "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           python - <<'PY'
-          import os, subprocess
+          import json, os, subprocess
           task = os.environ["TASK_ID"]
-          if task != "PLY-0002": raise SystemExit("Unsupported scoped task ID")
-          allowed = {'src/platform/storage/contracts.ts','src-tauri/src/storage.rs','src-tauri/src/lib.rs','src/components/DashboardSummary.tsx','src/App.tsx','src/styles.css','src/components/InventoryDispatchManager.tsx'}
-          changed = set(subprocess.check_output(['git','diff','--name-only',os.environ["BASELINE_SHA"]+'...HEAD'],text=True).splitlines())
-          if not changed or not changed.issubset(allowed): raise SystemExit('PLY-0002 file allowlist validation failed')
-          required = allowed
+          mode = os.environ["VERIFICATION_MODE"]
+          allowed = set(json.loads(os.environ["FILE_ALLOWLIST_JSON"]))
+          if not allowed: raise SystemExit("Task file allowlist is empty")
           tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD'],text=True).splitlines())
-          if not required.issubset(tracked): raise SystemExit('Required PLY-0002 implementation files missing')
-          print('PLY_ERP_FILE_ALLOWLIST=PASS')
-          print('PRIVATE_SOURCE_CONTENT_IN_LOGS=NO')
+          if mode == "PREVIEW_ONLY":
+              if not allowed.issubset(tracked): raise SystemExit("Preview allowlist contains missing paths")
+              print("PLY_ERP_READ_ALLOWLIST=PASS")
+          else:
+              changed = set(subprocess.check_output(['git','diff','--name-only',os.environ["BASELINE_SHA"]+'...HEAD'],text=True).splitlines())
+              if not changed or not changed.issubset(allowed): raise SystemExit("Task file allowlist validation failed")
+              print("PLY_ERP_CHANGE_ALLOWLIST=PASS")
+          print("PRIVATE_SOURCE_CONTENT_IN_LOGS=NO")
           PY
           git rev-parse HEAD > "$WORKSPACE/PLY_ERP_COMMIT_SHA"
 
@@ -195,6 +204,82 @@ jobs:
           echo 'PLY_0002_QA=PASS'
           echo 'PRIVATE_SOURCE_CONTENT_IN_LOGS=NO'
           echo "VERIFIED_PLY_ERP_COMMIT=$(cat /dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA)"
+
+      - name: Package sanitized CEO preview bundle
+        id: ceo_preview
+        if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode == 'PREVIEW_ONLY'
+        working-directory: /dev/shm/enterprise_workspace/PLY_ERP
+        env:
+          WORKSPACE: /dev/shm/enterprise_workspace
+          CANDIDATE_SHA: ${{ steps.autonomy.outputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -d dist
+          mkdir -p "$WORKSPACE/CEO_PREVIEW"
+          cp -a dist "$WORKSPACE/CEO_PREVIEW/dist"
+          find "$WORKSPACE/CEO_PREVIEW/dist" -type f -name '*.map' -delete
+          cat > "$WORKSPACE/CEO_PREVIEW/CEO_APP_WALKTHROUGH.md" <<'EOF'
+          # PlyMetrix ERP — CEO App Walkthrough
+          Candidate: ${{ steps.autonomy.outputs.candidate_sha }}
+
+          ## Browser preview boundary
+          This is the built Vite web UI. The production application is a Tauri desktop/Android app. Tauri invoke commands and encrypted local database operations require the installed native runtime and are not available in an ordinary browser preview. No real company records or database are included.
+
+          ## Screens and navigation
+          - Overview: dashboard summary cards for today's posted production, active inventory catalogue, stock-on-hand and dispatch status; local refresh and 30-second refresh. Native database required for live values.
+          - Production: production work-voucher entry and production master/BOM setup surfaces. Some setup/BOM state is session-only and visibly marked as prototype until its database adapter is connected.
+          - Inventory & Warehouse: choose Receipt or Issue, select item, quantity, date and notes, then Save stock movement; create dispatch order with dispatch number/customer/date/notes; Refresh; Mark dispatched. Native encrypted database required. Negative stock is rejected.
+          - Documentation & Organisation: Documents, Staff & Org Chart, Work Tracking and Legal Cases tabs; current records are in component state, not yet persisted to the encrypted database.
+          - AI Business Assistant: natural-language query mock UI and XLSX/PDF selection; it explicitly reports that local DB, document index and on-device AI/report services are not wired.
+          - Procurement & Purchase, Products & Materials, Sales & CRM, Accounts & Finance, HR & Employees, Maintenance, Quality Management, Reports & Analytics: navigation placeholders; workflows are planned, not implemented.
+          - Settings: visible sidebar control; no implemented settings route is wired.
+          
+          ## Key controls
+          - Sidebar navigation buttons switch workspaces; mobile menu and close controls open/close navigation.
+          - Dashboard refresh re-reads native summary; inventory successful writes dispatch a dashboard-refresh event.
+          - Inventory form validates positive quantity and selected item; dispatch form requires dispatch number and customer; status action moves pending orders to dispatched once.
+          - Documentation tabs switch local forms/lists; add-record controls update current component state only.
+          - Assistant suggestion chips populate the prompt; submit returns a clear not-connected message rather than fabricated business data.
+          
+          ## Database tables in migrations 001–005
+          The bundle includes no database file or customer data. Table names below are schema definitions only:
+          EOF
+          python - <<'PY'
+          import pathlib, re
+          root=pathlib.Path("src/platform/storage/migrations")
+          names=[]
+          for path in sorted(root.glob("00[1-5]_*.sql")):
+              for name in re.findall(r"CREATE TABLE IF NOT EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)",path.read_text(),re.I):
+                  names.append((name,path.name))
+          with open(pathlib.Path("/dev/shm/enterprise_workspace/CEO_PREVIEW/CEO_APP_WALKTHROUGH.md"),"a",encoding="utf-8") as f:
+              for name,migration in names:
+                  f.write(f"- {name} — {migration}\\n")
+          PY
+          if find "$WORKSPACE/CEO_PREVIEW/dist" -type f \\( -name '*.map' -o -name '*.tsx' -o -name '*.ts' \\) | grep -q .; then
+            echo "CEO_PREVIEW_SANITIZATION=FAIL"; exit 1
+          fi
+          echo "CEO_PREVIEW_BUNDLE=READY"
+          echo "CEO_PREVIEW_SOURCE_MAPS=REMOVED"
+          echo "PRIVATE_SOURCE_CONTENT_IN_PUBLIC_LOGS=NO"
+
+      - name: Block CEO preview artifact upload from public worker
+        if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode == 'PREVIEW_ONLY' && github.event.repository.private != true
+        shell: bash
+        run: |
+          echo "CEO_PREVIEW_ARTIFACT_UPLOAD=BLOCKED_PUBLIC_REPOSITORY"
+          echo "A private artifact destination is required; no private-derived bundle was uploaded."
+
+      - name: Upload private CEO preview artifact
+        if: steps.autonomy.outputs.authorized == 'true' && steps.autonomy.outputs.verification_mode == 'PREVIEW_ONLY' && github.event.repository.private == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ply-erp-ceo-preview-build
+          path: /dev/shm/enterprise_workspace/CEO_PREVIEW/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Run harmless worker health verification
         shell: bash
         run: |
