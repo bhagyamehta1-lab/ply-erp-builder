@@ -249,12 +249,12 @@ def main() -> int:
                 duplicates_skipped += 1
                 continue
             elif kind == "BOARDROOM":
-                locked = bool(re.search(r"\\b(lock this|implement this|lock|implement)\\b", body, re.I))
+                locked = bool(re.search(r"\b(lock this|implement this|lock|implement)\b", body, re.I))
                 meeting_id = f"BRM-ISSUE-{number}-{re.sub(r'[^0-9A-Za-z]+', '', updated_at)[:20]}"
                 task_id = None
                 if locked:
                     existing_ids = [int(m.group(1)) for item in backlog.get("requirements", [])
-                                    if (m := re.fullmatch(r"PLY-(\\d+)", str(item.get("task_id", ""))))]
+                                    if (m := re.fullmatch(r"PLY-(\d+)", str(item.get("task_id", ""))))]
                     task_id = f"PLY-{max(existing_ids, default=0)+1:04d}"
                     backlog.setdefault("requirements", []).append({
                         "task_id": task_id,
@@ -306,7 +306,7 @@ def main() -> int:
                     "blocker":"Exact file allowlist and candidate SHA must be established before dispatch." if locked else None
                 }
                 minutes.setdefault("records", []).append(record)
-                put_file("state/minutes_of_meeting.json", json.dumps(minutes, ensure_ascii=False, indent=2)+"\\n",
+                put_file("state/minutes_of_meeting.json", json.dumps(minutes, ensure_ascii=False, indent=2)+"\n",
                          f"Boardroom minutes for CEO issue #{number}", WRITE_TOKEN)
                 if locked:
                     backlog["enterprise_status"] = "ACTIVE_OPERATIONS"
