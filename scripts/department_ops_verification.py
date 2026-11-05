@@ -26,6 +26,9 @@ def self_test_write_path_guards():
         try: validate_write_target(repository,path)
         except SystemExit: continue
         raise SystemExit("Department write-path self-test failed.")
+    try: request("PUT",f"/repos/{REPO}/contents/state/task_grants.json","",{})
+    except SystemExit: pass
+    else: raise SystemExit("Department self-test failed: unauthorized write was not rejected before network access.")
 def request(method,path,token,payload=None):
     if method.upper() not in ("GET","HEAD"):
         prefix=f"/repos/{REPO}/contents/"
