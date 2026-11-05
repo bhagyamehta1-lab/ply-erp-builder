@@ -209,12 +209,24 @@ def preflight():
     capsules, _ = get_json(CAPSULES_PATH, read_token)
     graph, _ = get_json(GRAPH_PATH, read_token)
     checkpoints, _ = get_json(CHECKPOINT_PATH, read_token)
+    finance, _ = get_json("finance_and_resource_ledger.json", read_token)
+    legal, _ = get_json("legal_and_compliance_registry.json", read_token)
+    delivery, _ = get_json("customer_and_delivery_operations.json", read_token)
+    charter, _ = get_json("human_accountability_charter.json", read_token)
+    department_bindings, _ = get_json("department_workflow_bindings.json", read_token)
 
     if (not isinstance(audit, dict) or not isinstance(portfolio.get("ventures"), list)
             or not portfolio["ventures"] or not isinstance(roster.get("employees"), list)
             or not roster["employees"] or not isinstance(brain.get("employee_memory_nodes"), dict)
             or not isinstance(capsules.get("projects"), dict) or "PLY_ERP" not in capsules["projects"]
-            or not isinstance(graph, dict) or not isinstance(checkpoints.get("checkpoints"), list)):
+            or not isinstance(graph, dict) or not isinstance(checkpoints.get("checkpoints"), list)
+            or finance.get("policy", {}).get("external_cloud_spend_limit") != 0
+            or finance.get("policy", {}).get("external_cloud_spend_allowed") is not False
+            or legal.get("privacy_security", {}).get("offline_first_required") is not True
+            or legal.get("privacy_security", {}).get("zero_pii_exfiltration") is not True
+            or delivery.get("release_integrity", {}).get("sha256_manifest_required") is not True
+            or charter.get("human_ceo", {}).get("github_identity") != "bhagyamehta1-lab"
+            or {x.get("employee_id") for x in department_bindings.get("workflows", [])} != {"EMP-01", "EMP-02", "EMP-03", "EMP-04", "EMP-05"}):
         raise RunnerError("Canonical governance record or schema validation failed.")
 
     missing_memory = [
