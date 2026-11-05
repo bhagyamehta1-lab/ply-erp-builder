@@ -1,3 +1,4 @@
+# Private-only publisher: never send preview bundles to public Actions artifacts.
 #!/usr/bin/env python3
 """Publish a sanitized CEO preview only to the verified private Enterprise-HQ repository."""
 import base64
