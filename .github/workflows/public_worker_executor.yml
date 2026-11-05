@@ -357,6 +357,8 @@ jobs:
           AUTONOMY_AUTHORIZED: ${{ steps.autonomy.outputs.authorized || 'false' }}
           AUTONOMY_TASK_ID: ${{ steps.autonomy.outputs.task_id || '' }}
           PRIVATE_CHECKOUT_OUTCOME: ${{ steps.private_checkout.outcome || 'skipped' }}
+          READ_ALLOWLIST_OUTCOME: ${{ steps.private_checkout.outcome || 'skipped' }}
+          READ_FILE_ALLOWLIST_JSON: ${{ steps.autonomy.outputs.read_file_allowlist || '[]' }}
           FRONTEND_OUTCOME: ${{ steps.frontend.outcome || 'skipped' }}
           SQL_OUTCOME: ${{ steps.sql.outcome || 'skipped' }}
           NATIVE_DEPS_OUTCOME: ${{ steps.native_deps.outcome || 'skipped' }}
