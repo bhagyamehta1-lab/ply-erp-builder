@@ -273,6 +273,15 @@ def preflight():
     orchestrator, _ = get_contents("scripts/autonomous_orchestrator.py", read_token)
     try:
         compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec")
+        hq_namespace = {
+            "__name__": "enterprise_hq_write_path_self_test",
+            "__file__": "/tmp/Enterprise-HQ/scripts/autonomous_orchestrator.py",
+        }
+        exec(compile(orchestrator, "Enterprise-HQ/scripts/autonomous_orchestrator.py", "exec"), hq_namespace)
+        hq_write_test = hq_namespace.get("self_test_write_path_guards")
+        if not callable(hq_write_test):
+            raise RunnerError("Enterprise-HQ orchestrator is missing its mandatory write-path security self-test.")
+        hq_write_test()
     except SyntaxError as exc:
         raise RunnerError(f"HQ orchestrator syntax validation failed at line {exc.lineno}: {exc.msg}.") from exc
     if "--prepare-shift" not in orchestrator or "--record-qa-heuristic" not in orchestrator:
