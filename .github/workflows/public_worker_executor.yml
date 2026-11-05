@@ -223,10 +223,13 @@ jobs:
       - name: Publish sanitized verification identity
         id: publish_identity
         if: steps.autonomy.outputs.authorized == 'true'
+        env:
+          TASK_ID: ${{ steps.autonomy.outputs.task_id }}
         shell: bash
         run: |
           set -euo pipefail
-          echo 'PLY_0002_QA=PASS'
+          echo "TASK_VERIFICATION=PASS"
+          echo "TASK_ID=$TASK_ID"
           echo 'PRIVATE_SOURCE_CONTENT_IN_LOGS=NO'
           echo "VERIFIED_PLY_ERP_COMMIT=$(cat /dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA)"
 
