@@ -231,7 +231,10 @@ def preflight():
         and grant.get("read_file_allowlist") == read_file_allowlist
     )
     # Global and task-scoped authorization are conjunctive; neither can override the other.
-    build_allowed = safety.get("builds_enabled") is True and scoped_build
+    build_allowed = (safety.get("builds_enabled") is True and safety.get("dispatch_enabled") is True
+                     and roadmap.get("bridge", {}).get("dispatch_enabled") is True
+                     and roadmap.get("bridge", {}).get("verified_read") is True
+                     and roadmap.get("bridge", {}).get("verified_write") is True and scoped_build)
     event = os.environ.get("GITHUB_EVENT_NAME", "unknown")
     authorized = False
     state = "BLOCKED_UNKNOWN_STATE"
@@ -247,7 +250,7 @@ def preflight():
         state, reason = "BLOCKED_BUILD_AUTHORIZATION", "Neither the global build gate nor an exact task-scoped build grant authorizes this task."
     elif safety.get("execution_hold") is not False:
         state, reason = "BLOCKED_EXECUTION_HOLD", "The live roadmap execution hold is active."
-    elif roadmap.get("status") != "ACTIVE_OPERATIONS" or backlog.get("enterprise_status") != "ACTIVE_OPERATIONS":
+    elif roadmap.get("system_status", roadmap.get("status")) != "ACTIVE_OPERATIONS" or backlog.get("enterprise_status") != "ACTIVE_OPERATIONS":
         state, reason = "BLOCKED_ENTERPRISE_STATE", "Roadmap and backlog are not both ACTIVE_OPERATIONS."
     elif task.get("approval_state") != "APPROVED" or task.get("dispatch_authorized") is not True:
         state, reason = "BLOCKED_TASK_AUTHORIZATION", f"{task_id} is not approved and explicitly dispatch-authorized."
