@@ -181,7 +181,7 @@ def output(values):
 
 def preflight():
     read_token = os.environ.get("ENTERPRISE_HQ_READ_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
-    write_token = os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
+    write_token = os.environ.get("ENTERPRISE_HQ_AUDIT_APPEND_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
     if not read_token or not write_token:
         raise RunnerError("HQ read/write credentials are unavailable; autonomous execution is blocked.")
 
@@ -344,9 +344,9 @@ def preflight():
 
 
 def checkpoint():
-    token = os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
+    token = os.environ.get("ENTERPRISE_HQ_AUDIT_APPEND_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
     if not token:
-        raise RunnerError("HQ write credential unavailable; verification checkpoint cannot be recorded.")
+        raise RunnerError("HQ audit-append credential unavailable; governance checkpoint cannot be recorded.")
     outcomes = {
         "private_checkout": os.environ.get("PRIVATE_CHECKOUT_OUTCOME", "skipped"),
         "frontend": os.environ.get("FRONTEND_OUTCOME", "skipped"),
