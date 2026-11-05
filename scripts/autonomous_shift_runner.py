@@ -233,7 +233,8 @@ def preflight():
 
     audit_safety = audit.get("safety", {})
     audit_hold = (
-        audit.get("system_status") == "SAFE_HOLD"
+        os.environ.get("CEO_AUDIT_GATE_HOLD", "").casefold() == "true"
+        or audit.get("system_status") == "SAFE_HOLD"
         or audit_safety.get("safe_hold") is True
         or audit_safety.get("execution_hold") is True
         or audit_safety.get("builds_enabled") is not True
