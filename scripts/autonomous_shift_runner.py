@@ -18,6 +18,7 @@ import base64
 import json
 import os
 import pathlib
+import runpy
 import subprocess
 import sys
 import urllib.error
@@ -89,6 +90,20 @@ def self_test_write_path_guards() -> None:
 
 class RunnerError(RuntimeError):
     pass
+
+
+def self_test_all_write_guards() -> None:
+    self_test_write_path_guards()
+    for script in (
+        "scripts/ceo_hq_worker.py",
+        "scripts/department_ops_verification.py",
+        "scripts/publish_private_preview.py",
+    ):
+        namespace = runpy.run_path(script)
+        test = namespace.get("self_test_write_path_guards")
+        if not callable(test):
+            raise RunnerError("A worker script is missing its mandatory write-path security self-test.")
+        test()
 
 
 def now():
@@ -621,7 +636,7 @@ def main():
     parser.add_argument("mode", choices=("preflight", "checkpoint"))
     args = parser.parse_args()
     try:
-        self_test_write_path_guards()
+        self_test_all_write_guards()
         return preflight() if args.mode == "preflight" else checkpoint()
     except (RunnerError, OSError, ValueError, KeyError, TypeError) as exc:
         safe_message = str(exc).replace("\n", " ")[:400]
