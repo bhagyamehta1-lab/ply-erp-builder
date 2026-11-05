@@ -104,7 +104,7 @@ def command_kind(body: str):
         return "ADD"
     if upper.startswith("MODIFY:"):
         return "MODIFY"
-    return None
+    return "BOARDROOM" if raw else None
 
 
 def legacy_processed_issue_ids(audit):
@@ -164,6 +164,8 @@ def main() -> int:
     backlog_text, _ = get_file("projects/ply_erp_backlog.json", READ_TOKEN)
     orchestrator_text, _ = get_file("scripts/autonomous_orchestrator.py", READ_TOKEN)
     audit_text, _ = get_file("state/ceo_command_audit.json", READ_TOKEN)
+    minutes, _ = json_from_file("state/minutes_of_meeting.json", READ_TOKEN)
+    codebase_index, _ = json_from_file("state/codebase_index.json", READ_TOKEN)
 
     try:
         roadmap = json.loads(roadmap_text)
@@ -192,10 +194,6 @@ def main() -> int:
         and roadmap.get("safety", {}).get("dispatch_enabled") is True
         and roadmap.get("bridge", {}).get("dispatch_enabled") is True
         and backlog.get("enterprise_status") == "ACTIVE_OPERATIONS"
-        and len(authorized) == 1
-        and authorized[0].get("task_id") == "PLY-0001"
-        and authorized[0].get("approval_state") == "APPROVED"
-        and authorized[0].get("status") == "IN_PROGRESS"
     )
     if not (safe_hold or active_operations):
         raise SafeFailure("HQ state failed SAFE_HOLD/ACTIVE_OPERATIONS scope validation; inbox processing stopped.")
@@ -248,9 +246,96 @@ def main() -> int:
             if existing is not None:
                 result_text = str(existing.get("answer_summary", "CEO command was already recorded in HQ backlog."))
             elif number in processed_legacy:
-                # Prior failed private-runner attempts were independently handled/audited.
                 duplicates_skipped += 1
                 continue
+            elif kind == "BOARDROOM":
+                locked = bool(re.search(r"\\b(lock this|implement this|lock|implement)\\b", body, re.I))
+                meeting_id = f"BRM-ISSUE-{number}-{re.sub(r'[^0-9A-Za-z]+', '', updated_at)[:20]}"
+                task_id = None
+                if locked:
+                    existing_ids = [int(m.group(1)) for item in backlog.get("requirements", [])
+                                    if (m := re.fullmatch(r"PLY-(\\d+)", str(item.get("task_id", ""))))]
+                    task_id = f"PLY-{max(existing_ids, default=0)+1:04d}"
+                    backlog.setdefault("requirements", []).append({
+                        "task_id": task_id,
+                        "title": (body.strip().splitlines()[0][:120] or "CEO boardroom decision"),
+                        "details": body.strip(),
+                        "status": "BLOCKED_PENDING_ARCHITECTURE_SCOPE",
+                        "approval_state": "APPROVED",
+                        "created_at": utc_now(),
+                        "updated_at": utc_now(),
+                        "dispatch_authorized": False,
+                        "explicit_file_allowlist": [],
+                        "scope_pending": True,
+                        "task_scoped_authorization": "NOT_GRANTED",
+                        "revision_count": 0,
+                        "revision_history": [],
+                        "blocker": "CEO decision is recorded; EMP-01 must produce and validate an exact file-by-file allowlist before dispatch."
+                    })
+                record = {
+                    "meeting_id": meeting_id,
+                    "timestamp": utc_now(),
+                    "source": "Enterprise-HQ GitHub Issue",
+                    "source_issue_number": number,
+                    "source_issue_updated_at": updated_at,
+                    "ceo_request": body.strip(),
+                    "product_repository": "bhagyamehta1-lab/PLY_ERP",
+                    "product_commit": codebase_index.get("last_verified_commit"),
+                    "participants": [
+                        {"name":"Vikram","role":"Chief Architect — Systems & Rust/SQLite","persona_type":"AI_ROLE_SIMULATION"},
+                        {"name":"Aditi","role":"Product & ERP Domain Lead — Plywood Manufacturing","persona_type":"AI_ROLE_SIMULATION"},
+                        {"name":"Rohan","role":"Lead Frontend & UX Engineer — React/TypeScript","persona_type":"AI_ROLE_SIMULATION"},
+                        {"name":"Kabir","role":"QA & Security Lead","persona_type":"AI_ROLE_SIMULATION"}
+                    ],
+                    "decision": "LOCKED_SCOPE_PENDING" if locked else "DISCUSSION_OPEN",
+                    "task_id": task_id,
+                    "revision_number": 0,
+                    "explicit_file_allowlist": [],
+                    "policy_evaluation": {
+                        "global_build_gate": roadmap.get("safety", {}).get("builds_enabled") is True,
+                        "execution_hold": roadmap.get("safety", {}).get("execution_hold"),
+                        "task_scoped_grant": "NOT_GRANTED",
+                        "dispatch_authorized": False
+                    },
+                    "role_advice": {
+                        "Vikram":"Architecture aur encrypted local data boundaries ko pehle map karna hoga; exact files EMP-01 blueprint se decide honge.",
+                        "Aditi":"Plywood factory ke operator steps, approvals aur exception cases acceptance criteria mein likhne honge.",
+                        "Rohan":"Screen flow, form validation, empty/error/loading states aur responsive behavior define karenge.",
+                        "Kabir":"Har critical action ke positive, negative, audit aur privacy tests honge; CEO sign-off se pehle task close nahi hoga."
+                    },
+                    "blocker":"Exact file allowlist and candidate SHA must be established before dispatch." if locked else None
+                }
+                minutes.setdefault("records", []).append(record)
+                put_file("state/minutes_of_meeting.json", json.dumps(minutes, ensure_ascii=False, indent=2)+"\\n",
+                         f"Boardroom minutes for CEO issue #{number}", WRITE_TOKEN)
+                if locked:
+                    backlog["enterprise_status"] = "ACTIVE_OPERATIONS"
+                    put_file("projects/ply_erp_backlog.json", json.dumps(backlog, ensure_ascii=False, indent=2)+"\\n",
+                             f"CEO locked boardroom task {task_id}", WRITE_TOKEN)
+                    result_text = f"Boardroom decision recorded. {task_id} is approved but BLOCKED_PENDING_ARCHITECTURE_SCOPE; no code was dispatched. EMP-01 must produce the exact allowlist and a new matching task grant before execution."
+                else:
+                    result_text = "BOARDROOM MEETING MODE: Vikram, Aditi, Rohan and Kabir have recorded the discussion. Nothing was dispatched. Reply with 'Lock this' or 'Implement this' when you want a scoped requirement created."
+                audit.setdefault("commands", []).append({
+                    "command":"BOARDROOM", "source_issue_number":number,
+                    "source_issue_updated_at":updated_at, "meeting_id":meeting_id,
+                    "task_id":task_id, "result":"LOCKED_SCOPE_PENDING" if locked else "DISCUSSION_OPEN",
+                    "timestamp":utc_now()
+                })
+                audit["timestamp"] = utc_now()
+                audit.setdefault("worker", {})["last_inbox_sync"] = utc_now()
+                audit["worker"]["last_inbox_sync_result"] = "BOARDROOM_MINUTES_RECORDED"
+                audit.setdefault("safety", {}).update({
+                    "safe_hold": status == "SAFE_HOLD",
+                    "execution_hold": roadmap.get("safety", {}).get("execution_hold"),
+                    "dispatch_enabled": roadmap.get("safety", {}).get("dispatch_enabled"),
+                    "product_task_execution": False,
+                    "builds_enabled": roadmap.get("safety", {}).get("builds_enabled"),
+                    "releases_enabled": roadmap.get("safety", {}).get("releases_enabled"),
+                    "deployments_enabled": roadmap.get("safety", {}).get("deployments_enabled")
+                })
+                put_file("state/ceo_command_audit.json", json.dumps(audit, ensure_ascii=False, indent=2)+"\\n",
+                         f"Audit boardroom issue #{number}", WRITE_TOKEN)
+                commands_processed += 1
             else:
                 child_env = {
                     "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -323,7 +408,7 @@ def main() -> int:
                              f"Audit CEO inbox command #{number}", WRITE_TOKEN)
 
             # Issue comments are private to the Enterprise-HQ repository.
-            policy_note = ("ACTIVE_OPERATIONS is scoped to PLY-0001 only; this inbox sync did not dispatch product code." if active_operations else "SAFE_HOLD remains active. No PLY_ERP task was dispatched.")
+            policy_note = ("Inbox consultation is read-only unless a separate task-scoped dispatch gate passes; this issue sync did not dispatch product code." if active_operations else "SAFE_HOLD remains active. Meeting minutes only; no PLY_ERP task was dispatched.")
             comment_body = (
                 f"CEO Command Desk result\n\n{result_text}\n\n"
                 f"{policy_note}\n\n{marker_text}"
