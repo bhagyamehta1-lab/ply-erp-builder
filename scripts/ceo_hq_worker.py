@@ -397,12 +397,15 @@ def main() -> int:
                     audit["enterprise_status"] = enterprise_state
                     audit.setdefault("worker", {})["last_inbox_sync"] = utc_now()
                     audit["worker"]["last_inbox_sync_result"] = "ACTIVE_OPERATIONS_SCOPED_READ_AND_BACKLOG_WRITE" if active_operations else "SAFE_HOLD_READ_AND_BACKLOG_WRITE"
-                    audit["safety"] = {
-                        "safe_hold": not active_operations,
-                        "execution_hold": not active_operations,
-                        "dispatch_enabled": active_operations,
-                        "product_task_execution": active_operations,
-                    }
+                    audit.setdefault("safety", {}).update({
+                        "safe_hold": safe_hold,
+                        "execution_hold": roadmap.get("safety", {}).get("execution_hold"),
+                        "dispatch_enabled": roadmap.get("safety", {}).get("dispatch_enabled"),
+                        "product_task_execution": False,
+                        "builds_enabled": roadmap.get("safety", {}).get("builds_enabled"),
+                        "releases_enabled": roadmap.get("safety", {}).get("releases_enabled"),
+                        "deployments_enabled": roadmap.get("safety", {}).get("deployments_enabled")
+                    })
                     put_file("state/ceo_command_audit.json",
                              json.dumps(audit, ensure_ascii=False, indent=2) + "\n",
                              f"Audit CEO inbox command #{number}", WRITE_TOKEN)
