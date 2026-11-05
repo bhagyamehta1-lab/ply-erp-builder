@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Policy-gated background verifier for Enterprise-HQ.
 
+Pipeline nudge: consume the newly promoted PLY-0004 task on the next push run.
+
 Reads the alignment DNA before any other HQ state. It never edits product source,
 never applies model-generated patches, and fails closed when authorization is absent.
 """
