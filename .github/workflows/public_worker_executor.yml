@@ -385,10 +385,11 @@ jobs:
           PY
 
       - name: Write sanitized QA checkpoint to Enterprise-HQ
-        if: always() && steps.autonomy.outputs.authorized == 'true'
+        if: always()
         env:
           ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
+          AUTONOMY_POLICY_STATE: ${{ steps.autonomy.outputs.policy_state || 'BLOCKED_POLICY_PREFLIGHT_UNAVAILABLE' }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
