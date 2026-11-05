@@ -9,6 +9,22 @@ def get(path):
     return json.loads(base64.b64decode(d["content"]).decode())
 def require(ok,msg):
     if not ok: raise SystemExit("CEO_UAT_FAIL="+msg)
+def validate_signoff(task, candidate_sha, task_id):
+    v=task.get("verification",{})
+    expected=(v.get("private_source_sha") if task_id=="PLY-0001" else v.get("promoted_main_commit"))
+    if task.get("status")!="QA_VERIFIED_AWAITING_CEO_REVIEW" or task.get("technical_verification_status")!="VERIFIED_GREEN":
+        raise ValueError("task is not independently QA verified")
+    if not expected or candidate_sha!=expected:
+        raise ValueError("candidate SHA mismatch")
+    if not all(isinstance(v.get(k),int) and v[k]>0 for k in ("worker_run_id","worker_job_id","runner_id")):
+        raise ValueError("run/job/runner evidence missing")
+    if task_id=="PLY-0001" and (v.get("cleanup")!="PASS" or v.get("private_source_content_in_public_logs") is not False or v.get("frontend_typecheck_and_vite_build")!="PASS"):
+        raise ValueError("PLY-0001 QA evidence incomplete")
+    if task_id=="PLY-0002":
+        checks=v.get("checks",{})
+        if any(checks.get(k)!="PASS" for k in ("preflight","frontend_build","sql_migrations_001_to_005","rust_fmt","tmpfs_cleanup")):
+            raise ValueError("PLY-0002 QA evidence incomplete")
+    return expected
 def main():
     if not TOKEN: raise SystemExit("CEO_UAT_FAIL=READ_CREDENTIAL_UNAVAILABLE")
     audit=get("state/ceo_command_audit.json"); backlog=get("projects/ply_erp_backlog.json"); roadmap=get("state/enterprise_roadmap.json"); index=get("state/codebase_index.json")
@@ -19,21 +35,20 @@ def main():
     for tid in ("PLY-0001","PLY-0002"):
         task=tasks.get(tid); require(task is not None,"MISSING_"+tid)
         v=task.get("verification",{})
-        require(task.get("status")=="QA_VERIFIED_AWAITING_CEO_REVIEW","TASK_NOT_AWAITING_CEO_UAT_"+tid)
-        require(task.get("technical_verification_status")=="VERIFIED_GREEN","TECHNICAL_QA_NOT_GREEN_"+tid)
         run=v.get("worker_run_id"); job=v.get("worker_job_id"); runner=v.get("runner_id")
-        require(all(isinstance(n,int) and n>0 for n in (run,job,runner)),"MISSING_QA_RUN_JOB_RUNNER_"+tid)
         sha=(v.get("private_source_sha") if tid=="PLY-0001" else v.get("promoted_main_commit"))
         require(isinstance(sha,str) and len(sha)==40,"QA_CANDIDATE_SHA_INVALID_"+tid)
-        if tid=="PLY-0001":
-            require(v.get("cleanup")=="PASS" and v.get("private_source_content_in_public_logs") is False and v.get("frontend_typecheck_and_vite_build")=="PASS","PLY0001_QA_EVIDENCE_INCOMPLETE")
-        else:
-            checks=v.get("checks",{})
-            require(checks.get("preflight")=="PASS" and checks.get("frontend_build")=="PASS" and checks.get("sql_migrations_001_to_005")=="PASS" and checks.get("rust_fmt")=="PASS" and checks.get("tmpfs_cleanup")=="PASS","PLY0002_QA_EVIDENCE_INCOMPLETE")
-        # Simulate the CEO_SIGN_OFF guard on an isolated copy; do not write real state.
-        require(sha!="0"*40,"INVALID_SIGNOFF_SHA_"+tid)
-        wrong_sha_rejected=True
+        try:
+            validate_signoff(task,"0"*40,tid)
+            wrong_sha_rejected=False
+        except ValueError:
+            wrong_sha_rejected=True
         require(wrong_sha_rejected,"SIGNOFF_MISMATCH_GUARD_FAILED_"+tid)
+        try:
+            validate_signoff(task,sha,tid)
+        except ValueError as exc:
+            raise SystemExit("CEO_UAT_FAIL=SIGNOFF_VALIDATION_"+tid+"_"+str(exc))
+        # Simulate the CEO_SIGN_OFF transition on an isolated copy; no repository state is mutated.
         clone=next(x for x in simulated_backlog["requirements"] if x["task_id"]==tid)
         clone["status"]="CEO_SIGNED_OFF_COMPLETED"; clone["approval_state"]="CEO_SIGNED_OFF_COMPLETED"
         clone["ceo_sign_off"]={"decision":"SIMULATED_CEO_SIGNED_OFF","candidate_sha":sha,"qa_run_id":run,"qa_job_id":job,"runner_id":runner}
