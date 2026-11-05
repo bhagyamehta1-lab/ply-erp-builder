@@ -125,6 +125,26 @@ def append_checkpoint(record, token: str):
     raise RunnerError("Checkpoint update exhausted its concurrency retries.")
 
 
+
+def put_index_with_retry(value, token, sha, message):
+    """Merge verified-index fields onto the latest HQ index after HTTP 409."""
+    merge_keys=("last_verified_commit","last_verified_run_id","last_verified_runner_id","last_verified_at","last_verified_task_id","indexed_files","tauri_commands")
+    for attempt in range(4):
+        try:
+            put_contents(INDEX_PATH,value,token,sha,message)
+            return
+        except RunnerError as exc:
+            if "HTTP 409" not in str(exc) or attempt==3:
+                raise
+            latest, latest_sha=get_json(INDEX_PATH,token)
+            for key in merge_keys:
+                if key in value:
+                    latest[key]=value[key]
+            value,sha=latest,latest_sha
+            time.sleep(0.4*(attempt+1))
+    raise RunnerError("Codebase index update exhausted its concurrency retries.")
+
+
 def append_verified_heuristic(rule, token: str):
     required = ("id", "trigger_pattern", "root_cause", "mandatory_fix", "verified_in_run")
     if not isinstance(rule, dict) or any(not isinstance(rule.get(k), str) or not rule[k].strip() for k in required):
@@ -343,7 +363,7 @@ def checkpoint():
                     "list_dispatch_orders",
                 )
             ]
-        put_contents(INDEX_PATH, index, token, sha, "index: refresh codebase cache after green verification")
+        put_index_with_retry(index, token, sha, "index: refresh codebase cache after green verification")
 
         candidate = os.environ.get("QA_HEURISTIC_JSON", "")
         if candidate:
