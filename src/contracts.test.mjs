@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
@@ -63,10 +63,9 @@ test('sparse checkout materializes only exact approved read paths',()=>{
   const walk=(dir)=>{for(const entry of readdirSync(dir,{withFileTypes:true})){if(entry.name==='.git'||entry.name==='patterns.txt')continue;const path=join(dir,entry.name);if(entry.isDirectory())walk(path);else materialized.push(relative(root,path).replaceAll('\\\\','/'));}};
   walk(root);
   assert.deepEqual(materialized.sort(),['README.md','src/allowed.ts']);
-  assert.equal(requireFile(join(root,'private','unapproved.ts')),false);
+  assert.equal(existsSync(join(root,'private','unapproved.ts')),false);
  } finally { rmSync(root,{recursive:true,force:true}); }
 });
-function requireFile(path){ try { return readdirSync(path).length>=0; } catch { return false; } }
 test('worker workflow has no public artifact upload and verifies physical read boundary',()=>{
  const workflow=readFileSync('.github/workflows/public_worker_executor.yml','utf8');
  const runner=readFileSync('scripts/autonomous_shift_runner.py','utf8');
