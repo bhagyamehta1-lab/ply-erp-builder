@@ -333,7 +333,7 @@ def main() -> int:
                     "releases_enabled": roadmap.get("safety", {}).get("releases_enabled"),
                     "deployments_enabled": roadmap.get("safety", {}).get("deployments_enabled")
                 })
-                put_file("state/ceo_command_audit.json", json.dumps(audit, ensure_ascii=False, indent=2)+"\\n",
+                put_file("state/ceo_command_audit.json", json.dumps(audit, ensure_ascii=False, indent=2)+"\n",
                          f"Audit boardroom issue #{number}", WRITE_TOKEN)
                 commands_processed += 1
             else:
