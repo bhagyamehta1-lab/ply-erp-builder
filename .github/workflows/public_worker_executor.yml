@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/autonomous_shift_runner.py
+          python -m py_compile scripts/autonomous_shift_runner.py scripts/ceo_hq_worker.py
           python scripts/autonomous_shift_runner.py preflight
 
       - name: Poll HQ and synchronize CEO inbox
