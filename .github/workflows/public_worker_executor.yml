@@ -79,7 +79,7 @@ jobs:
           python scripts/autonomous_shift_runner.py preflight
 
       - name: Poll HQ and synchronize CEO inbox
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync')
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'poll_hq' || inputs.mode == 'ceo_inbox_sync'))
         env:
           WORKSPACE: /dev/shm/enterprise_workspace
           CEO_WORKER_MODE: ceo_inbox_sync
