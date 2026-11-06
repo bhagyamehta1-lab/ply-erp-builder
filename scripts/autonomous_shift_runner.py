@@ -30,6 +30,8 @@ HQ = "bhagyamehta1-lab/Enterprise-HQ"
 PRODUCT = "bhagyamehta1-lab/PLY_ERP"
 API = "https://api.github.com"
 CHECKPOINT_PATH = "state/autonomous_shift_checkpoints.json"
+LATEST_WORKER_CHECKPOINT_PATH = "state/latest_worker_checkpoint.json"
+PREVIEW_WALKTHROUGH_PATH = "previews/PLY-0003/CEO_APP_WALKTHROUGH.md"
 AUDIT_PATH = "state/ceo_command_audit.json"
 PORTFOLIO_PATH = "projects/portfolio_registry.json"
 ROSTER_PATH = "employees/department_roster.json"
@@ -47,6 +49,8 @@ HQ_WRITE_PATHS = frozenset({
     AUDIT_PATH,
     INDEX_PATH,
     HEURISTICS_PATH,
+    LATEST_WORKER_CHECKPOINT_PATH,
+    PREVIEW_WALKTHROUGH_PATH,
 })
 
 
@@ -66,6 +70,8 @@ def validate_hq_write_target(repository: str, path: str) -> str:
 
 def self_test_write_path_guards() -> None:
     assert validate_hq_write_target(HQ, CHECKPOINT_PATH) == CHECKPOINT_PATH
+    assert validate_hq_write_target(HQ, LATEST_WORKER_CHECKPOINT_PATH) == LATEST_WORKER_CHECKPOINT_PATH
+    assert validate_hq_write_target(HQ, PREVIEW_WALKTHROUGH_PATH) == PREVIEW_WALKTHROUGH_PATH
     blocked = (
         (PRODUCT, CHECKPOINT_PATH),
         (HQ, "state/task_grants.json"),
@@ -217,6 +223,35 @@ def append_checkpoint(record, token: str):
     raise RunnerError("Checkpoint update exhausted its concurrency retries.")
 
 
+
+
+def put_latest_worker_checkpoint(record, token: str):
+    """Publish a minimal run-identity and test-outcome record through guarded Contents PUT."""
+    encoded = urllib.parse.quote(LATEST_WORKER_CHECKPOINT_PATH, safe="/")
+    current = request_json("GET", f"{API}/repos/{HQ}/contents/{encoded}?ref=main", token)
+    sha = None
+    payload_value = {"schema_version": "1.0.0", "latest": {}}
+    if current is not None:
+        if current.get("type") != "file" or "content" not in current or "sha" not in current:
+            raise RunnerError("Latest worker checkpoint is not a valid HQ file.")
+        try:
+            payload_value = json.loads(base64.b64decode(current["content"]).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RunnerError("Latest worker checkpoint JSON is invalid.") from exc
+        if not isinstance(payload_value, dict):
+            raise RunnerError("Latest worker checkpoint schema is invalid.")
+        sha = current["sha"]
+    payload_value["latest"] = record
+    put_contents(LATEST_WORKER_CHECKPOINT_PATH, payload_value, token, sha,
+                 "worker: record run identity and deterministic test outcome")
+
+
+def put_private_walkthrough(content: str, token: str, sha: str | None = None):
+    """Write the sanitized PLY-0003 walkthrough only to its exact private HQ path."""
+    if not isinstance(content, str) or not content.strip():
+        raise RunnerError("Walkthrough delivery requires non-empty sanitized text.")
+    put_contents(PREVIEW_WALKTHROUGH_PATH, {"content": content}, token, sha,
+                 "preview: deliver sanitized PLY-0003 CEO walkthrough")
 
 def put_index_with_retry(value, token, sha, message):
     """Merge verified-index fields onto the latest HQ index after HTTP 409."""
@@ -593,6 +628,27 @@ def checkpoint():
         "materialized_source_files": json.loads(os.environ.get("READ_FILE_ALLOWLIST_JSON", "[]")) if outcomes["read_allowlist"] == "success" else [],
     }
     append_checkpoint(record, token)
+    put_latest_worker_checkpoint({
+        "timestamp": now(),
+        "run_id": int(run_id) if run_id and run_id.isdigit() else None,
+        "worker_commit": os.environ.get("GITHUB_SHA"),
+        "runner": {
+            "id": runner_id,
+            "name": os.environ.get("RUNNER_NAME"),
+            "os": os.environ.get("RUNNER_OS"),
+            "arch": os.environ.get("RUNNER_ARCH"),
+        },
+        "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN") or None,
+        "candidate_sha": source_sha,
+        "test_outcome": {
+            "write_guard_self_tests": "PASS",
+            "workflow_steps": outcomes,
+            "preview_bundle": preview_bundle_outcome,
+            "preview_artifact": preview_artifact_outcome,
+            "aggregate": checkpoint_state,
+        },
+        "recorded_at": now(),
+    }, token)
 
     # Append governance telemetry with the HQ-only writer; never mutate execution gates.
     audit, audit_sha = get_json(AUDIT_PATH, token)
