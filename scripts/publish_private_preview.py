@@ -24,11 +24,14 @@ ALLOWED_PREVIEW_FILES = frozenset({
     "CEO_APP_WALKTHROUGH.md",
     "preview-manifest.json",
 })
+ROOT_WALKTHROUGH_PATH = "previews/PLY-0003/CEO_APP_WALKTHROUGH.md"
 
 
 def validate_preview_write_target(repository, path):
     if repository != REPOSITORY:
         raise SystemExit("Preview write rejected: repository is not Enterprise-HQ.")
+    if path == ROOT_WALKTHROUGH_PATH:
+        return path
     prefix = "previews/PLY-0003/" + CANDIDATE + "/"
     if not path.startswith(prefix):
         raise SystemExit("Preview write rejected: path is outside the exact PLY-0003 candidate directory.")
@@ -152,11 +155,41 @@ def main():
         archive_bytes,
         "preview(PLY-0003): private CEO preview archive " + CANDIDATE,
     )
+    walkthrough_bytes = walkthrough.read_bytes()
     walkthrough_record = upload(
         "CEO_APP_WALKTHROUGH.md",
-        walkthrough.read_bytes(),
+        walkthrough_bytes,
         "docs(PLY-0003): private CEO application walkthrough " + CANDIDATE,
     )
+    # Also publish the requested stable HQ entry point; the candidate-scoped copy remains canonical.
+    root_existing = api_request(
+        "GET",
+        "/repos/" + REPOSITORY + "/contents/" + ROOT_WALKTHROUGH_PATH + "?ref=main",
+        allow_404=True,
+    )
+    root_payload = {
+        "message": "docs(PLY-0003): refresh stable private CEO walkthrough entry point " + CANDIDATE,
+        "content": base64.b64encode(walkthrough_bytes).decode("ascii"),
+        "branch": "main",
+    }
+    if root_existing and root_existing.get("sha"):
+        root_payload["sha"] = root_existing["sha"]
+    root_result = api_request(
+        "PUT", "/repos/" + REPOSITORY + "/contents/" + ROOT_WALKTHROUGH_PATH, root_payload
+    )
+    root_content = root_result.get("content") or {}
+    if root_content.get("path") != ROOT_WALKTHROUGH_PATH or not root_content.get("sha"):
+        raise SystemExit("Stable private walkthrough upload response did not verify.")
+    root_verified = api_request(
+        "GET", "/repos/" + REPOSITORY + "/contents/" + ROOT_WALKTHROUGH_PATH + "?ref=main"
+    )
+    if root_verified.get("sha") != root_content["sha"]:
+        raise SystemExit("Stable private walkthrough content SHA did not verify.")
+    root_walkthrough_record = {
+        "path": ROOT_WALKTHROUGH_PATH,
+        "git_blob_sha": root_content["sha"],
+        "size_bytes": len(walkthrough_bytes),
+    }
     manifest = {
         "artifact_name": "ply-erp-ceo-preview-build",
         "candidate_sha": CANDIDATE,
@@ -164,7 +197,7 @@ def main():
         "destination_repository": REPOSITORY,
         "destination_visibility": "PRIVATE",
         "archive_sha256": archive_sha256,
-        "files": [archive_record, walkthrough_record],
+        "files": [archive_record, walkthrough_record, root_walkthrough_record],
         "public_actions_artifact": False,
         "source_maps_included": False,
         "database_or_customer_data_included": False,
