@@ -247,11 +247,25 @@ def put_latest_worker_checkpoint(record, token: str):
 
 
 def put_private_walkthrough(content: str, token: str, sha: str | None = None):
-    """Write the sanitized PLY-0003 walkthrough only to its exact private HQ path."""
+    """Write raw sanitized Markdown only to the exact private HQ walkthrough path."""
+    validate_hq_write_target(HQ, PREVIEW_WALKTHROUGH_PATH)
     if not isinstance(content, str) or not content.strip():
         raise RunnerError("Walkthrough delivery requires non-empty sanitized text.")
-    put_contents(PREVIEW_WALKTHROUGH_PATH, {"content": content}, token, sha,
-                 "preview: deliver sanitized PLY-0003 CEO walkthrough")
+    if sha is None:
+        encoded = urllib.parse.quote(PREVIEW_WALKTHROUGH_PATH, safe="/")
+        current = request_json("GET", f"{API}/repos/{HQ}/contents/{encoded}?ref=main", token)
+        if current is not None:
+            if current.get("type") != "file" or not current.get("sha"):
+                raise RunnerError("Walkthrough destination is not a valid HQ file.")
+            sha = current["sha"]
+    payload = {
+        "message": "preview: deliver sanitized PLY-0003 CEO walkthrough",
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": "main",
+    }
+    if sha:
+        payload["sha"] = sha
+    request_json("PUT", f"{API}/repos/{HQ}/contents/{PREVIEW_WALKTHROUGH_PATH}", token, payload)
 
 def put_index_with_retry(value, token, sha, message):
     """Merge verified-index fields onto the latest HQ index after HTTP 409."""
