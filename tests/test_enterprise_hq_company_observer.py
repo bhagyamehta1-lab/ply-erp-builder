@@ -1,8 +1,10 @@
+import base64
 import json
 import unittest
 
 from scripts.enterprise_hq_company_observer import (
     ObserverError,
+    decode_private_envelope,
     fetch_private_json,
     summarize,
 )
@@ -131,6 +133,13 @@ class CompanyObserverTests(unittest.TestCase):
         records["audit"]["safety"] = {"task_scoped_build_authorizations": {}}
         with self.assertRaises(ObserverError):
             summarize(records)
+
+    def test_decodes_line_wrapped_github_contents_base64(self):
+        value = {"status": "OK", "aggregate_count": 3}
+        encoded = base64.b64encode(json.dumps(value).encode("utf-8")).decode("ascii")
+        wrapped = "\n".join(encoded[index:index + 16] for index in range(0, len(encoded), 16))
+        envelope = json.dumps({"content": wrapped}).encode("utf-8")
+        self.assertEqual(decode_private_envelope(envelope), value)
 
     def test_rejects_non_allowlisted_private_path_before_network(self):
         with self.assertRaises(ObserverError) as caught:

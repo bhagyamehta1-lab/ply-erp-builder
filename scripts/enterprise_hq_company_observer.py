@@ -30,6 +30,27 @@ class ObserverError(RuntimeError):
     """A sanitized observer failure."""
 
 
+def decode_private_envelope(raw_envelope: bytes) -> dict:
+    try:
+        envelope = json.loads(raw_envelope.decode("utf-8"))
+        encoded_content = envelope.get("content")
+        if not isinstance(encoded_content, str):
+            raise ObserverError("PRIVATE_RECORD_ENVELOPE_INVALID")
+        # GitHub's Contents API may wrap base64 in line breaks.
+        compact_content = "".join(encoded_content.split())
+        content = base64.b64decode(compact_content, validate=True)
+        if len(content) > MAX_PRIVATE_RECORD_BYTES:
+            raise ObserverError("PRIVATE_RECORD_TOO_LARGE")
+        value = json.loads(content.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ObserverError("PRIVATE_RECORD_SCHEMA_INVALID")
+        return value
+    except ObserverError:
+        raise
+    except (KeyError, ValueError, UnicodeDecodeError):
+        raise ObserverError("PRIVATE_RECORD_PARSE_FAILED") from None
+
+
 def fetch_private_json(path: str, token: str) -> dict:
     if path not in ALLOWED_PRIVATE_PATHS:
         raise ObserverError("PRIVATE_RECORD_PATH_NOT_ALLOWED")
@@ -50,17 +71,7 @@ def fetch_private_json(path: str, token: str) -> dict:
             raw_envelope = response.read(MAX_PRIVATE_RECORD_BYTES + 1)
         if len(raw_envelope) > MAX_PRIVATE_RECORD_BYTES:
             raise ObserverError("PRIVATE_RECORD_TOO_LARGE")
-        envelope = json.loads(raw_envelope.decode("utf-8"))
-        encoded_content = envelope.get("content")
-        if not isinstance(encoded_content, str):
-            raise ObserverError("PRIVATE_RECORD_ENVELOPE_INVALID")
-        content = base64.b64decode(encoded_content, validate=True)
-        if len(content) > MAX_PRIVATE_RECORD_BYTES:
-            raise ObserverError("PRIVATE_RECORD_TOO_LARGE")
-        value = json.loads(content.decode("utf-8"))
-        if not isinstance(value, dict):
-            raise ObserverError("PRIVATE_RECORD_SCHEMA_INVALID")
-        return value
+        return decode_private_envelope(raw_envelope)
     except ObserverError:
         raise
     except (urllib.error.URLError, TimeoutError, OSError):
