@@ -1,0 +1,10 @@
+services:
+  - type: cron
+    name: enterprise-hq-worker-watchdog
+    runtime: python
+    schedule: "*/5 * * * *"
+    buildCommand: "python --version"
+    startCommand: "python scripts/external_worker_watchdog.py"
+    envVars:
+      - key: GH_ACTIONS_TOKEN
+        sync: false
