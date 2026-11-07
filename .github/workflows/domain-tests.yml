@@ -17,3 +17,8 @@ jobs:
           node-version: 22
       - name: Run domain tests
         run: node --test src/*.test.mjs
+
+      - name: Run worker telemetry unit tests
+        run: |
+          python -m py_compile scripts/worker_telemetry.py scripts/autonomous_shift_runner.py
+          python -m unittest tests.test_worker_telemetry -v
