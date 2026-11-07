@@ -86,6 +86,7 @@ jobs:
           python-version: "3.12"
 
       - name: Create isolated shared-memory workspace
+        id: workspace
         shell: bash
         run: |
           set -euo pipefail
@@ -418,7 +419,7 @@ jobs:
           PY
 
       - name: Capture private runner resource endpoint
-        if: always() && steps.autonomy.outcome != 'skipped'
+        if: always() && steps.workspace.outcome == 'success'
         shell: bash
         run: |
           set +e
