@@ -112,3 +112,36 @@ Run the focused suite with:
 ```bash
 python -m unittest discover -s tests -p 'test_enterprise_hq_principal_trust_policy.py'
 ```
+
+
+## Policy-bound principal verifier adapter (read-only source contract)
+
+scripts/enterprise_hq_principal_policy_source.py composes the structural trust-policy
+matcher with two explicitly injected adapters: a read-only policy source and a
+cryptographic signature verifier. It implements the PrincipalVerifier interface used
+by the task-bound principal attestation contract.
+
+- retrieves a policy snapshot by the exact attestation issuer and key identifier on
+  every verification; no policy cache or network client is included;
+- requires an exact snapshot schema, a source identifier/version, an adapter-asserted
+  authenticated/read-only assurance marker, and a timezone-aware retrieval timestamp;
+- rejects snapshots older than five minutes or more than thirty seconds in the future;
+- recomputes the canonical policy SHA-256 digest and rejects a mismatched source pin;
+- evaluates issuer, key, audience, principal type, status, revocation and validity
+  before invoking the cryptographic signature adapter;
+- passes the key fingerprint, policy digest, policy ID, source version and source ID
+  to the cryptographic adapter so it can verify the actual key against the policy pin;
+- sanitizes source, clock and cryptographic adapter exceptions;
+- performs no writes, key retrieval, credential handling, network access or task
+  execution; execution authorization remains false in the outer principal contract.
+
+The source assurance string is an adapter assertion, not proof of source authenticity.
+The injected policy-source implementation must itself be independently authenticated
+and read-only. The cryptographic adapter must verify the signature and confirm that
+the actual public key matches the policy fingerprint and digest. Neither adapter is
+configured in this repository. Tests use synthetic adapters only. The wrapper is a
+conformance boundary, not a production trust store or authenticated identity service.
+
+Run the focused suite with:
+
+python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_source.py'
