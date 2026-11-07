@@ -111,7 +111,7 @@ class PrincipalReplayLedger(SuccessorLeaseRecoveryLedger):
     def _result(self, *args, **kwargs):
         """Preserve both inherited receipt and recovery result-envelope helpers."""
         if len(args) == 1:
-            return VerificationReceiptLedger._result(self, *args, **kwargs)
+            return VerificationReceiptLedger._result(*args, **kwargs)
         return super()._result(*args, **kwargs)
 
     def _append_nonce_event(
