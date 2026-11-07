@@ -217,13 +217,13 @@ class PrincipalPolicySourceTests(unittest.TestCase):
     def test_policy_issuer_mismatch_rejected(self):
         policy = policy_fixture(issuer="https://other.example.test")
         source = FakePolicySource(snapshot_fixture(policy))
-        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_issuer_MISMATCH"):
+        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_ISSUER_MISMATCH"):
             self.verify(self.build(source=source))
 
     def test_policy_key_mismatch_rejected(self):
         policy = policy_fixture(key_id="other-key")
         source = FakePolicySource(snapshot_fixture(policy))
-        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_key_id_MISMATCH"):
+        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_KEY_ID_MISMATCH"):
             self.verify(self.build(source=source))
 
     def test_disallowed_audience_rejected(self):
