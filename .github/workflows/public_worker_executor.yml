@@ -93,6 +93,13 @@ jobs:
           echo "WORKSPACE=/dev/shm/enterprise_workspace" >> "$GITHUB_ENV"
           python --version
 
+      - name: Capture private runner resource baseline
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/worker_telemetry.py snapshot "$WORKSPACE/telemetry_start.json" --workspace "$WORKSPACE"
+
       - name: Load alignment DNA and enforce autonomous shift policy
         id: autonomy
         if: success() || steps.safety_gate.outputs.safe_hold == 'true'
@@ -409,6 +416,20 @@ jobs:
           print(f"RUNNER_ID={current['runner_id']}")
           print(f"RUNNER_NAME={current.get('runner_name', 'unreported')}")
           PY
+
+      - name: Capture private runner resource endpoint
+        if: always() && steps.autonomy.outcome != 'skipped'
+        shell: bash
+        run: |
+          set +e
+          python scripts/worker_telemetry.py snapshot "$WORKSPACE/telemetry_end.json" --workspace "$WORKSPACE" >/dev/null 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "PRIVATE_RESOURCE_SNAPSHOT=CAPTURED"
+          else
+            echo "PRIVATE_RESOURCE_SNAPSHOT=UNAVAILABLE"
+          fi
+          exit 0
 
       - name: Write sanitized QA checkpoint to Enterprise-HQ
         if: always()
