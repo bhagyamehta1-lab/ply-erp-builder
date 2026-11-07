@@ -41,6 +41,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_lease_contract.py'
       - name: Test persistent lease proposal ledger
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_lease_ledger.py'
+      - name: Test deterministic resource-budget envelope
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_resource_budget.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

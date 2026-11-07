@@ -20,3 +20,27 @@ Run the focused suite with:
 ```sh
 python -m unittest discover -s tests -p 'test_enterprise_hq_lease_ledger.py'
 ```
+
+
+## Resource-budget envelope (validation-only)
+
+`scripts/enterprise_hq_resource_budget.py` validates a strict, task-bound budget envelope for internal company work:
+
+- maximum declared runtime: 300 seconds;
+- maximum declared memory: 512 MiB;
+- maximum declared output: 65,536 bytes;
+- network budget: exactly zero and network mode disabled;
+- maximum attempts: the existing two-attempt contract;
+- cloud spend ceiling: exactly USD 0.00;
+- paid services and external effects: disabled;
+- human approval: mandatory.
+
+The envelope is bound to the validated task ID and its SHA-256 proposal digest. Unknown fields, booleans masquerading as integers, over-limit values, nonzero spend, network access, and disabled human review are rejected.
+
+This is a declaration validator only. It does not measure or enforce CPU time, memory, output, retries, network access, or monetary spend. It does not issue credentials, start workers, or authorize execution. A runtime enforcement layer and authenticated principal remain outstanding.
+
+Run the focused suite with:
+
+```sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_resource_budget.py'
+```
