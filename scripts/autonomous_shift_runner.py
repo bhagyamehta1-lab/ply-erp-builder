@@ -583,6 +583,19 @@ def preflight():
     return 0
 
 
+def read_resource_telemetry():
+    """Read only aggregate snapshots; these are written to the private HQ checkpoint, never public logs."""
+    try:
+        module = runpy.run_path("scripts/worker_telemetry.py")
+        summarize = module["load_pair"]
+        return summarize(
+            "/dev/shm/enterprise_workspace/telemetry_start.json",
+            "/dev/shm/enterprise_workspace/telemetry_end.json",
+        )
+    except Exception:
+        return {"status": "UNAVAILABLE", "sample_count": 0}
+
+
 def checkpoint():
     token = os.environ.get("ENTERPRISE_HQ_AUDIT_APPEND_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
     if not token:
@@ -605,12 +618,37 @@ def checkpoint():
     source_sha_path = pathlib.Path("/dev/shm/enterprise_workspace/PLY_ERP_COMMIT_SHA")
     source_sha = source_sha_path.read_text(encoding="utf-8").strip() if source_sha_path.is_file() else None
     runner_id = None
+    job_metrics = {"status": "UNAVAILABLE", "steps": []}
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if github_token and run_id and run_id.isdigit():
         jobs = request_json("GET", f"{API}/repos/{os.environ.get('GITHUB_REPOSITORY', 'bhagyamehta1-lab/ply-erp-builder')}/actions/runs/{run_id}/jobs", github_token) or {}
         job = next((item for item in jobs.get("jobs", []) if item.get("name") == "Public CEO command and worker engine"), None)
-        if job and isinstance(job.get("runner_id"), int):
-            runner_id = job["runner_id"]
+        if job:
+            if isinstance(job.get("runner_id"), int):
+                runner_id = job["runner_id"]
+            def seconds_between(started, completed):
+                try:
+                    start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                    end_dt = datetime.fromisoformat(completed.replace("Z", "+00:00"))
+                    return max(0.0, (end_dt - start_dt).total_seconds())
+                except (AttributeError, TypeError, ValueError):
+                    return None
+            step_rows = []
+            for step in job.get("steps", []):
+                step_rows.append({
+                    "name": step.get("name"),
+                    "status": step.get("status"),
+                    "conclusion": step.get("conclusion"),
+                    "duration_seconds": seconds_between(step.get("started_at"), step.get("completed_at")),
+                })
+            job_metrics = {
+                "status": "PARTIAL_CURRENT_JOB_SNAPSHOT",
+                "job_started_at": job.get("started_at"),
+                "job_completed_at": job.get("completed_at"),
+                "job_duration_seconds": seconds_between(job.get("started_at"), job.get("completed_at")),
+                "steps": step_rows,
+                "note": "Current checkpoint step may still be running; final job duration is unavailable until the job completes.",
+            }
     passed = (
         authorized
         and all(value == "success" for key, value in outcomes.items() if key != "rust" or not preview_required)
@@ -622,9 +660,12 @@ def checkpoint():
     policy_state = os.environ.get("AUTONOMY_POLICY_STATE", "")
     blocked_state = policy_state if policy_state.startswith("BLOCKED_") or policy_state.startswith("SKIPPED_") else ""
     checkpoint_state = "VERIFIED_PASS" if passed else (blocked_state or "VERIFICATION_FAILED")
+    resource_telemetry = read_resource_telemetry()
+    resource_telemetry["github_job"] = job_metrics
     record = {
         "timestamp": now(),
         "event": os.environ.get("GITHUB_EVENT_NAME"),
+        "resource_telemetry": resource_telemetry,
         "run_id": run_id,
         "worker_commit": os.environ.get("GITHUB_SHA"),
         "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN") or None,
@@ -661,6 +702,7 @@ def checkpoint():
             "preview_artifact": preview_artifact_outcome,
             "aggregate": checkpoint_state,
         },
+        "resource_telemetry": resource_telemetry,
         "recorded_at": now(),
     }, token)
 
