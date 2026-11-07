@@ -108,6 +108,12 @@ class CompanyObserverTests(unittest.TestCase):
         with patch.object(observer.urllib.request, "urlopen", return_value=FakeResponse(body)):
             self.assertEqual(observer.fetch_private_json(observer.FILES["audit"], "test-token"), payload)
 
+    def test_malformed_private_record_envelope_is_rejected(self):
+        body = json.dumps({"content": ["not", "base64"]}).encode()
+        with patch.object(observer.urllib.request, "urlopen", return_value=FakeResponse(body)):
+            with self.assertRaisesRegex(ObserverError, "PRIVATE_RECORD_PARSE_FAILED"):
+                observer.fetch_private_json(observer.FILES["audit"], "test-token")
+
     def test_private_response_size_is_bounded(self):
         body = json.dumps({"content": base64.b64encode(b"{}").decode()}).encode()
         with patch.object(observer, "MAX_PRIVATE_RECORD_BYTES", 8):

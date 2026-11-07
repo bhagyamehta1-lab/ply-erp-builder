@@ -61,9 +61,9 @@ def validate_task(task: Mapping) -> dict:
     task_id = _validate_task_id(task["task_id"])
     workstream_id = task["workstream_id"]
     task_kind = task["task_kind"]
-    if workstream_id not in ALLOWED_WORKSTREAMS:
+    if not isinstance(workstream_id, str) or workstream_id not in ALLOWED_WORKSTREAMS:
         raise ContractError("WORKSTREAM_NOT_ALLOWED")
-    if task_kind not in TASK_KIND_TO_ROLE:
+    if not isinstance(task_kind, str) or task_kind not in TASK_KIND_TO_ROLE:
         raise ContractError("TASK_KIND_NOT_ALLOWED")
     if type(task["attempt"]) is not int or task["attempt"] != 0:
         raise ContractError("INITIAL_ATTEMPT_MUST_BE_ZERO")
@@ -140,7 +140,8 @@ def make_audit_record(
     previous_hash: str | None = None,
 ) -> dict:
     task_id = _validate_task_id(task_id)
-    if event not in ALLOWED_AUDIT_EVENTS or logical_role not in ALLOWED_LOGICAL_ROLES:
+    if (not isinstance(event, str) or event not in ALLOWED_AUDIT_EVENTS
+            or not isinstance(logical_role, str) or logical_role not in ALLOWED_LOGICAL_ROLES):
         raise ContractError("AUDIT_EVENT_OR_ROLE_INVALID")
     if previous_hash is not None and (
         not isinstance(previous_hash, str) or not SHA256_PATTERN.fullmatch(previous_hash)
@@ -174,13 +175,18 @@ def verify_audit_chain(records: list) -> bool:
             return False
         if record.get("schema_version") != "1.0.0":
             return False
-        if record.get("event") not in ALLOWED_AUDIT_EVENTS:
+        if (not isinstance(record.get("event"), str)
+                or record.get("event") not in ALLOWED_AUDIT_EVENTS):
             return False
-        if record.get("logical_role") not in ALLOWED_LOGICAL_ROLES:
+        if (not isinstance(record.get("logical_role"), str)
+                or record.get("logical_role") not in ALLOWED_LOGICAL_ROLES):
             return False
         body = {key: value for key, value in record.items() if key != "record_hash"}
-        expected_hash = hashlib.sha256(_canonical_bytes(body)).hexdigest()
-        if record.get("record_hash") != expected_hash:
+        try:
+            expected_hash = hashlib.sha256(_canonical_bytes(body)).hexdigest()
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(record.get("record_hash"), str) or record.get("record_hash") != expected_hash:
             return False
         previous_hash = expected_hash
     return True

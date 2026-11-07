@@ -32,6 +32,12 @@ class TaskContractTests(unittest.TestCase):
         self.assertEqual(routed["logical_role"], "CODE_MAINTAINER")
         self.assertEqual(routed["status"], "PROPOSED")
 
+    def test_rejects_unhashable_task_kind_and_workstream(self):
+        with self.assertRaises(ContractError):
+            validate_task(task(workstream_id=["WS-01"]))
+        with self.assertRaises(ContractError):
+            validate_task(task(task_kind=["INTERNAL_RESEARCH"]))
+
     def test_rejects_product_workstream(self):
         with self.assertRaisesRegex(ContractError, "WORKSTREAM_NOT_ALLOWED"):
             validate_task(task(workstream_id="PLY-0001"))
@@ -87,6 +93,12 @@ class TaskContractTests(unittest.TestCase):
         altered = dict(second)
         altered["event"] = "TASK_ROUTED"
         self.assertFalse(verify_audit_chain([first, altered]))
+
+    def test_audit_chain_rejects_malformed_event_types(self):
+        first = make_audit_record("HQ-001", "TASK_PROPOSED", "RESEARCH_ANALYST")
+        malformed = dict(first)
+        malformed["event"] = ["TASK_PROPOSED"]
+        self.assertFalse(verify_audit_chain([malformed]))
 
     def test_audit_chain_rejects_broken_link(self):
         first = make_audit_record("HQ-001", "TASK_PROPOSED", "RESEARCH_ANALYST")

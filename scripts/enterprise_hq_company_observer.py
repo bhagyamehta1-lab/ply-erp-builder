@@ -48,6 +48,8 @@ def fetch_private_json(path: str, token: str) -> dict:
         if len(raw) > MAX_PRIVATE_RECORD_BYTES:
             raise ObserverError("PRIVATE_RECORD_TOO_LARGE")
         envelope = json.loads(raw.decode("utf-8"))
+        if not isinstance(envelope, dict) or not isinstance(envelope.get("content"), str):
+            raise ObserverError("PRIVATE_RECORD_PARSE_FAILED")
         encoded_content = "".join(envelope["content"].split())
         content = base64.b64decode(encoded_content, validate=True).decode("utf-8")
         value = json.loads(content)
@@ -63,12 +65,22 @@ def fetch_private_json(path: str, token: str) -> dict:
 
 
 def summarize(records: dict) -> dict:
+    if not isinstance(records, dict) or set(records) != set(FILES):
+        raise ObserverError("PRIVATE_RECORD_SET_INVALID")
     identity = records["identity"]
     audit = records["audit"]
     register = records["register"]
+    if not all(isinstance(row, dict) for row in (identity, audit, register)):
+        raise ObserverError("PRIVATE_RECORD_SCHEMA_INVALID")
 
     company = identity.get("company", {})
-    first_project = identity.get("project_portfolio", {}).get("first_project", {})
+    portfolio = identity.get("project_portfolio", {})
+    authority = register.get("authority", {})
+    if not all(isinstance(row, dict) for row in (company, portfolio, authority)):
+        raise ObserverError("PRIVATE_RECORD_SCHEMA_INVALID")
+    first_project = portfolio.get("first_project", {})
+    if not isinstance(first_project, dict):
+        raise ObserverError("PRIVATE_RECORD_SCHEMA_INVALID")
     if (company.get("name") != "Enterprise-HQ"
             or company.get("canonical_repository") != HQ_REPOSITORY
             or company.get("is_product_app") is not False):
@@ -81,7 +93,7 @@ def summarize(records: dict) -> dict:
             or not isinstance(audit.get("timestamp"), str)
             or not isinstance(audit.get("enterprise_status"), str)):
         raise ObserverError("CEO_AUDIT_SCHEMA_INVALID")
-    if register.get("authority", {}).get("scope") != "Enterprise-HQ parent company only":
+    if authority.get("scope") != "Enterprise-HQ parent company only":
         raise ObserverError("COMPANY_REGISTER_SCOPE_INVALID")
 
     workstreams = register.get("workstreams", [])
@@ -94,7 +106,8 @@ def summarize(records: dict) -> dict:
             raise ObserverError("COMPANY_WORKSTREAM_ROW_INVALID")
         workstream_id = row.get("workstream_id")
         status = row.get("status")
-        if workstream_id not in ALLOWED_WORKSTREAMS or not isinstance(status, str) or not status:
+        if (not isinstance(workstream_id, str) or workstream_id not in ALLOWED_WORKSTREAMS
+                or not isinstance(status, str) or not status):
             raise ObserverError("COMPANY_WORKSTREAM_ROW_INVALID")
         workstream_ids.add(workstream_id)
         statuses.append(status)
