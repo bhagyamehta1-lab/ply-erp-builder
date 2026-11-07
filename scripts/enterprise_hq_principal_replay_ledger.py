@@ -16,6 +16,7 @@ from scripts.enterprise_hq_principal_contract import (
     validate_principal_attestation,
 )
 from scripts.enterprise_hq_recovery_ledger import SuccessorLeaseRecoveryLedger
+from scripts.enterprise_hq_verification_ledger import VerificationReceiptLedger
 from scripts.enterprise_hq_task_contract import validate_task
 from scripts.enterprise_hq_task_ledger import (
     LedgerCorruptionError,
@@ -106,6 +107,12 @@ class PrincipalReplayLedger(SuccessorLeaseRecoveryLedger):
         except Exception:
             self.close()
             raise
+
+    def _result(self, *args, **kwargs):
+        """Preserve both inherited receipt and recovery result-envelope helpers."""
+        if len(args) == 1:
+            return VerificationReceiptLedger._result(self, *args, **kwargs)
+        return super()._result(*args, **kwargs)
 
     def _append_nonce_event(
         self,
