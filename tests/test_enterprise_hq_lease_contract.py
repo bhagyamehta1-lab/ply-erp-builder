@@ -186,6 +186,21 @@ class LeaseContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "SUCCESSOR_LEASE_OVERLAPS_PRIOR"):
             validate_recovery_successor(self.task, previous, successor, self.now, False)
 
+    def test_successor_must_use_a_distinct_lease_id(self):
+        previous = lease_fixture(
+            attempt=1,
+            issued=self.now - timedelta(minutes=11),
+            expires=self.now - timedelta(seconds=1),
+        )
+        successor = lease_fixture(
+            lease_id=previous["lease_id"],
+            attempt=2,
+            issued=self.now,
+            expires=self.now + timedelta(minutes=5),
+        )
+        with self.assertRaisesRegex(ContractError, "SUCCESSOR_LEASE_ID_REUSED"):
+            validate_recovery_successor(self.task, previous, successor, self.now, False)
+
     def test_successor_requires_prior_lease_to_be_expired(self):
         previous = lease_fixture()
         successor = lease_fixture(lease_id="HQL-LEASE-02", attempt=2)

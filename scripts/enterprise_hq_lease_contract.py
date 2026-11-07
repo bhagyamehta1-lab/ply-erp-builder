@@ -167,6 +167,8 @@ def validate_recovery_successor(
     successor = validate_lease(task, successor_lease, now)
     if successor["lease_status"] == "EXPIRED":
         raise ContractError("SUCCESSOR_LEASE_ALREADY_EXPIRED")
+    if successor["lease_id"] == previous["lease_id"]:
+        raise ContractError("SUCCESSOR_LEASE_ID_REUSED")
     if successor["task_id"] != previous["task_id"]:
         raise ContractError("SUCCESSOR_TASK_MISMATCH")
     if successor["proposal_digest"] != previous["proposal_digest"]:

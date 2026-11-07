@@ -88,7 +88,7 @@ python -m unittest discover -s tests -p 'test_enterprise_hq_verification_receipt
 - requires timezone-aware issue, expiry, and evaluation timestamps;
 - distinguishes NOT_YET_VALID, ACTIVE, and EXPIRED using an explicit evaluation time, so tests are deterministic;
 - classifies an expired lease as retry-eligible only when no side effects are reported and the attempt ceiling is not reached;
-- validates a proposed successor only after prior expiry, with no reported side effects, a strictly incremented attempt, and no overlapping lease window.
+- validates a proposed successor only after prior expiry, with no reported side effects, a strictly incremented attempt, a distinct lease ID, and no overlapping lease window.
 
 This is a validation contract only. It does not issue or persist leases, enforce unique lease IDs across processes, authenticate owners, provide distributed locking, execute tasks, renew leases, automatically retry work, or authorize dispatch. Recovery decisions always retain human approval, automatic retry is false, and execution authorization is false. A logical owner ID is an untrusted assertion, not a worker identity.
 
