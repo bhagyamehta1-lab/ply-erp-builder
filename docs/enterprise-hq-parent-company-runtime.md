@@ -19,3 +19,29 @@ The persisted successor is a proposal only. It is not inserted into the active l
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_recovery_ledger.py'
+
+
+## Fail-closed principal attestation contract (adapter required)
+
+scripts/enterprise_hq_principal_contract.py defines task-bound worker and reviewer
+attestation envelopes. Worker assertions bind to the exact task proposal and lease;
+reviewer assertions bind to the exact task proposal and verification receipt.
+
+- validates exact schema, task/proposal binding, role, audience, issuer/key identifiers,
+  Ed25519 signature encoding, nonce syntax, timezone-aware validity window, and a
+  maximum 15-minute attestation lifetime;
+- delegates cryptographic signature and trust-chain checks to an injected verifier
+  adapter; the module contains no trust store, key retrieval, network client, or default
+  verifier;
+- fails closed with IDENTITY_VERIFIER_UNAVAILABLE when no adapter is configured;
+- sanitizes adapter exceptions and rejects false or non-boolean adapter results;
+- returns only task/role/binding status and always keeps execution_authorized=false.
+
+The test suite uses a synthetic verifier only. It does not establish production
+authentication, key custody, nonce replay prevention, identity lifecycle management,
+or independent reviewer independence. A trusted adapter and persistent replay store
+must be separately reviewed and authorized before operational use.
+
+Run the focused suite with:
+
+python -m unittest discover -s tests -p 'test_enterprise_hq_principal_contract.py'
