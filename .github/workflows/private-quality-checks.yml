@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.SOURCE_REPOSITORY }}
-          ref: fix/windows-android-build
+          ref: fix/native-platform-readonly-integration
           token: ${{ secrets.PRIVATE_PAT }}
           path: private-source
           persist-credentials: false
