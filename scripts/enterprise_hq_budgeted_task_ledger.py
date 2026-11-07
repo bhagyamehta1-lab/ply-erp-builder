@@ -16,6 +16,7 @@ from scripts.enterprise_hq_task_ledger import (
     LedgerError,
     TaskConflictError,
     TaskLedger,
+    MAX_LEDGER_TASKS,
     _canonical_json,
     _utc_now,
     _validate_timestamp,
@@ -145,7 +146,7 @@ class BudgetedTaskLedger(TaskLedger):
                     ).fetchone()
                     if key_owner is not None:
                         raise TaskConflictError("IDEMPOTENCY_KEY_CONTENT_CONFLICT")
-                    if current_task_count >= 256:
+                    if current_task_count >= MAX_LEDGER_TASKS:
                         raise LedgerError("LEDGER_CAPACITY_REACHED")
                     self._connection.execute(
                         """INSERT INTO tasks
@@ -296,6 +297,7 @@ class BudgetedTaskLedger(TaskLedger):
             "budget_count": len(budget_rows),
             "budget_audit_event_count": len(events),
             "budget_audit_chain": "VALID",
+            "budget_enforcement_status": "NOT_ENFORCED",
         }
 
     def recover_after_restart(self) -> dict:

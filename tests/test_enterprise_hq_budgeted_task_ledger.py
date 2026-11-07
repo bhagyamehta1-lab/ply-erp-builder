@@ -233,7 +233,7 @@ class BudgetedTaskLedgerTests(unittest.TestCase):
             ).fetchone()
             self.assertEqual(row["status"], "PROPOSED")
             verified = ledger.verify()
-            self.assertEqual(verified["budget_enforcement_status"] if "budget_enforcement_status" in verified else "NOT_ENFORCED", "NOT_ENFORCED")
+            self.assertEqual(verified["budget_enforcement_status"], "NOT_ENFORCED")
             self.assertFalse(ledger.recover_after_restart()["execution_resumed"])
 
 
