@@ -236,8 +236,26 @@ class SuccessorLeaseRecoveryLedgerTests(unittest.TestCase):
 
     def test_corrupt_recovery_chain_blocks_another_append(self):
         second_task = task_fixture("HQ-RECOVERY-02", "WS-02")
+        second_previous = lease_fixture(
+            task=second_task,
+            lease_id="HQL-RECOVERY-OLD-02",
+            issued=datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc),
+            expires=datetime(2026, 11, 7, 12, 10, tzinfo=timezone.utc),
+        )
+        second_successor = lease_fixture(
+            task=second_task,
+            lease_id="HQL-RECOVERY-NEXT-02",
+            attempt=2,
+            issued=self.now + timedelta(minutes=1),
+            expires=self.now + timedelta(minutes=11),
+        )
         with self.open_ledger_with_expired_lease() as ledger:
             self.propose(ledger)
+            # Prepare the second task and lease while every chain is still valid.
+            ledger.propose_many([second_task])
+            ledger.propose_lease(
+                second_task, second_previous, self.previous_issued_time()
+            )
         connection = sqlite3.connect(self.database)
         connection.execute(
             "UPDATE recovery_audit_events SET record_hash = ?", ("0" * 64,)
@@ -245,23 +263,7 @@ class SuccessorLeaseRecoveryLedgerTests(unittest.TestCase):
         connection.commit()
         connection.close()
         with SuccessorLeaseRecoveryLedger(self.database) as reopened:
-            reopened.propose_many([second_task])
-            second_previous = lease_fixture(
-                task=second_task,
-                lease_id="HQL-RECOVERY-OLD-02",
-                issued=datetime(2026, 11, 7, 12, 0, tzinfo=timezone.utc),
-                expires=datetime(2026, 11, 7, 12, 10, tzinfo=timezone.utc),
-            )
-            reopened.propose_lease(
-                second_task, second_previous, self.previous_issued_time()
-            )
-            second_successor = lease_fixture(
-                task=second_task,
-                lease_id="HQL-RECOVERY-NEXT-02",
-                attempt=2,
-                issued=self.now + timedelta(minutes=1),
-                expires=self.now + timedelta(minutes=11),
-            )
+            # The attempted append itself must detect the corrupt chain before writing.
             with self.assertRaises(LedgerCorruptionError):
                 reopened.propose_successor_lease(
                     second_task, second_previous, second_successor, self.now
