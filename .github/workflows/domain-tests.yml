@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -21,4 +24,4 @@ jobs:
       - name: Run worker telemetry unit tests
         run: |
           python -m py_compile scripts/worker_telemetry.py scripts/autonomous_shift_runner.py
-          python -m unittest tests.test_worker_telemetry -v
+          python -m unittest discover -s tests -p 'test_worker_telemetry.py' -v
