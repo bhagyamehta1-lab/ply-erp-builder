@@ -43,13 +43,13 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_lease_ledger.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
-          ENTERPRISE_HQ_READ_TOKEN: \${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
+          ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
         run: python scripts/enterprise_hq_company_observer.py --output "$RUNNER_TEMP/enterprise-hq-company-summary.json"
       - name: Store aggregate-only report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: enterprise-hq-parent-company-summary-\${{ github.run_id }}
-          path: \${{ runner.temp }}/enterprise-hq-company-summary.json
+          name: enterprise-hq-parent-company-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/enterprise-hq-company-summary.json
           if-no-files-found: ignore
           retention-days: 1
