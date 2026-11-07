@@ -1,101 +1,22 @@
-# Enterprise-HQ parent-company runtime foundation
-
-## Scope
-
-This is a separate parent-company lane. It does not execute PLY ERP work, read product source, dispatch product tasks, or alter product grants. Project 001 remains outside this lane. The implementation is deterministic software, not an LLM-backed workforce.
-
-## Read-only observer
-
-The observer reads exactly three private governance records from Enterprise-HQ main:
-
-- company identity metadata, to confirm the parent-company and Project 001 boundary;
-- CEO audit metadata, to validate the audit envelope and safety-field types without emitting gate values;
-- the company completion register, to count workstreams and their statuses.
-
-It enforces an exact private-path allowlist and a 512 KiB response cap. Base64 whitespace is normalized before strict decoding. Workstream statuses are restricted to the register's known vocabulary. Readiness values are emitted only when they match the small, currently approved status allowlist; unknown values become `UNKNOWN`. Public output omits private timestamps, identifiers, file contents, prompts, grants, task payloads, and safety-gate values. The GitHub read token is available only to the one workflow step that reads those records. The aggregate artifact is retained for one day.
-
-## Deterministic task contract
-
-`scripts/enterprise_hq_task_contract.py` is a pure validation library:
-
-- accepts only HQ task IDs and WS-01 through WS-11;
-- accepts only internal research, internal documentation, internal code, and read-only audit task kinds;
-- rejects extra payload fields, product workstream IDs, external effects, unapproved task plans, and non-zero initial attempts;
-- rejects empty batches, caps a batch at eight tasks, and applies per-task and per-batch byte limits;
-- exposes the task-kind-to-role policy as an immutable mapping;
-- routes task kinds to deterministic logical roles;
-- derives stable SHA-256 idempotency keys;
-- creates hash-chained metadata audit records;
-- produces a distinct logical verifier assignment and a bounded recovery decision.
-
-These are logical roles, not authenticated people or worker processes. The verifier identity is explicitly marked `NOT_AUTHENTICATED`. A hash chain detects mutation relative to the supplied chain, but is not a signature, external timestamp, durable append-only store, or proof of authorship.
-
-## Local durable proposal ledger
-
-`scripts/enterprise_hq_task_ledger.py` adds a bounded SQLite proposal ledger using only Python's standard library:
-
-- persists up to 256 validated task proposals;
-- caps the database at 8 MiB and applies a matching SQLite page-count limit;
-- creates new database files with owner-only permissions and rejects symlink, non-regular, multiply-linked, non-owner-owned, broadly accessible, or oversized database files;
-- uses SQLite transactions (`BEGIN IMMEDIATE`) so a proposal and its audit event commit or roll back together;
-- verifies the existing ledger before every append, refusing to extend a corrupt chain;
-- treats identical proposals as idempotent and rejects a task ID reused with different content;
-- stores only the strict task-contract fields and deterministic logical role;
-- records a sequenced SHA-256 event chain and verifies it on reopen;
-- checks SQLite integrity, foreign keys, task schema, idempotency keys, event count, event ordering, timezone-aware timestamps, role attribution and chain hashes;
-- keeps every task in `PROPOSED` / human-review-required state.
-
-The SQLite file is local and is not encrypted by this module. The implementation does not store prompts or task descriptions, but the host filesystem must still be trusted. Existing files with unsafe permissions are rejected, not silently chmodded. The restart check proves only that local proposal records and their audit chain can be reopened and verified. It does not recover a running worker, renew a lease, authenticate an actor, resume a task, or retry work. The ledger has no claim, execution, dispatch, network, or result-verification API. The database is a local runtime component and has not been provisioned as a shared or production service.
-
-## Execution and verification limits
-
-The runtime does not claim to execute tasks, acquire distributed leases, perform semantic result verification, or dispatch retries. A `RETRY_ELIGIBLE` result from the pure contract is only a decision value; it does not enqueue or execute anything. Logical reviewer roles are not authenticated identities. A separately authenticated runtime, durable shared storage, independent verifier identity and explicit authorization would be required before any execution capability could be considered.
-
-No LLM provider is configured or authorized. No model API, cloud service, paid dependency, or remote worker is invoked. The current GitHub Actions workflow remains a periodic, read-only observer, not an always-on service or a 24/7 reliability guarantee.
-
-## Local verification
-
-Run:
-
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer.py'
-python -m unittest discover -s tests -p 'test_enterprise_hq_task_contract.py'
-python -m unittest discover -s tests -p 'test_enterprise_hq_task_ledger.py'
-```
-
-All suites are pure local tests and require no network, secrets, provider, paid service, or external system.
-
-## Verification receipt envelope (structural only)
-
-`scripts/enterprise_hq_verification_receipt.py` validates a proposed verification receipt against the exact task ID and canonical proposal digest. It requires the asserted proposer and verifier identifiers to differ, binds the proposer role to the task contract, requires the `INDEPENDENT_VERIFIER` logical role, restricts verdict vocabulary, checks a SHA-256 evidence-digest format, validates a timezone-aware review timestamp, and caps the receipt at 1 KiB.
-
-The validator deliberately labels its result `STRUCTURE_VALID_ONLY`. Logical identifiers are caller-supplied and are not authenticated; the evidence bytes are not inspected; semantic verification is not performed; receipts are not persisted; and execution authorization is always false. This is a receipt-envelope contract, not an independent verifier or an autonomous agent.
-
-Run the focused test suite with:
-
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_verification_receipt.py'
-```
 
 
-## Deterministic lease envelope and recovery transition (validation only)
+## Persistent lease-proposal ledger (local, review-only)
 
-`scripts/enterprise_hq_lease_contract.py` adds a pure contract for short-lived, task-bound lease envelopes:
+\`scripts/enterprise_hq_lease_ledger.py\` extends the local SQLite proposal ledger with separate \`lease_proposals\` and \`lease_audit_events\` tables:
 
-- binds each lease to an already validated parent-company task ID and proposal digest;
-- requires a syntactically valid logical owner identifier, while explicitly marking identity as NOT_AUTHENTICATED;
-- limits each lease window to 15 minutes and each attempt to the existing two-attempt ceiling;
-- requires timezone-aware issue, expiry, and evaluation timestamps;
-- distinguishes NOT_YET_VALID, ACTIVE, and EXPIRED using an explicit evaluation time, so tests are deterministic;
-- classifies an expired lease as retry-eligible only when no side effects are reported and the attempt ceiling is not reached;
-- validates a proposed successor only after prior expiry, with no reported side effects, a strictly incremented attempt, a distinct lease ID, and no overlapping lease window.
+- requires the exact parent-company task proposal to exist in the same ledger before a lease proposal can be recorded;
+- accepts only a future first-attempt lease envelope (\`NOT_YET_VALID\` at the supplied evaluation time), so recording cannot activate an already active or expired lease;
+- enforces one proposal per task and attempt, unique lease IDs, the existing two-attempt ceiling, and the existing 15-minute lease-window limit;
+- persists the lease envelope as \`PROPOSED\` and appends a separate sequenced SHA-256 audit chain in the same SQLite transaction;
+- treats identical lease proposals as idempotent and rejects conflicting reuse;
+- verifies both the original task proposal chain and the lease proposal chain before any append and after restart;
+- refuses to extend a corrupted lease audit chain;
+- keeps the task status at \`PROPOSED\` and returns \`lease_issued=false\`, \`execution_authorized=false\`, and \`automatic_retry=false\`.
 
-This is a validation contract only. It does not issue or persist leases, enforce unique lease IDs across processes, authenticate owners, provide distributed locking, execute tasks, renew leases, automatically retry work, or authorize dispatch. Recovery decisions always retain human approval, automatic retry is false, and execution authorization is false. A logical owner ID is an untrusted assertion, not a worker identity.
+This stage persists only initial attempt-1 lease proposals. Successor lease validation remains a separate pure contract and is not persisted by this component. The store is local, bounded to 256 lease proposals, and inherits the proposal ledger's 8 MiB database cap and owner-only file checks. It is not encrypted or shared across machines. A persisted row is a future lease proposal for human review, not an issued lease, authenticated worker claim, distributed lock, or execution authorization. No claims, renewals, automatic retries, or task resumption are implemented.
 
-Run the focused tests with:
+Run the focused suite with:
 
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_lease_contract.py'
-```
-
-The test suite uses fixed timestamps and the Python standard library; it requires no network, secrets, model provider, paid service, or external system.
+\`\`\`sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_lease_ledger.py'
+\`\`\`
