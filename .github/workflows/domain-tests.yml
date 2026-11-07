@@ -17,3 +17,7 @@ jobs:
           node-version: 22
       - name: Run domain tests
         run: node --test src/*.test.mjs
+      - name: Validate CEO governance writer safety guards
+        run: |
+          python -m py_compile scripts/ceo_hq_worker.py
+          python -c "import runpy; ns=runpy.run_path('scripts/ceo_hq_worker.py'); ns['self_test_write_path_guards']()"

@@ -53,8 +53,73 @@ def validate_hq_write_target(repository: str, path: str) -> str:
     return normalized
 
 
+
+def assert_backlog_governance_write_safe(current: dict, proposed: dict) -> None:
+    """Allow CEO inbox metadata writes, never grant, safety-gate or dispatch changes."""
+    protected_top = ("safety", "execution_hold", "builds_enabled", "dispatch_enabled",
+                     "deployments_enabled", "releases_enabled", "resume_authorization")
+    for key in protected_top:
+        if proposed.get(key) != current.get(key):
+            raise SafeFailure("Backlog write rejected: protected company safety state changed.", "SAFETY_FIELD_WRITE_DENIED")
+    old_tasks = {str(item.get("task_id")): item for item in current.get("requirements", []) if item.get("task_id")}
+    new_tasks = {str(item.get("task_id")): item for item in proposed.get("requirements", []) if item.get("task_id")}
+    if len(new_tasks) != len([item for item in proposed.get("requirements", []) if item.get("task_id")]):
+        raise SafeFailure("Backlog write rejected: duplicate task identifiers.", "SCHEMA_MISMATCH")
+    protected_task = ("dispatch_authorized", "authorization", "task_scoped_authorization",
+                      "candidate_sha", "candidate_commit", "explicit_file_allowlist",
+                      "read_file_allowlist", "verification_mode", "worker_repository")
+    for task_id, old in old_tasks.items():
+        new = new_tasks.get(task_id)
+        if new is None:
+            raise SafeFailure("Backlog write rejected: existing task removal is not permitted.", "TASK_SCOPE_WRITE_DENIED")
+        if any(new.get(key) != old.get(key) for key in protected_task):
+            raise SafeFailure("Backlog write rejected: task authorization or execution scope changed.", "TASK_SCOPE_WRITE_DENIED")
+    for task_id, new in new_tasks.items():
+        if task_id in old_tasks:
+            continue
+        nested = new.get("task_scoped_authorization")
+        if (new.get("dispatch_authorized") is not False
+                or new.get("authorization", {}).get("authorized") is True
+                or (isinstance(nested, dict) and nested.get("authorized") is True)
+                or new.get("explicit_file_allowlist") != []):
+            raise SafeFailure("Backlog write rejected: new CEO inbox tasks must have no grant and an empty write allowlist.", "TASK_SCOPE_WRITE_DENIED")
+
+
+def self_test_backlog_governance_write_guard() -> None:
+    baseline = {"safety": {"execution_hold": True}, "execution_hold": True,
+                "builds_enabled": False, "dispatch_enabled": False,
+                "requirements": [{"task_id": "PLY-0003", "dispatch_authorized": False,
+                                  "authorization": {"authorized": False},
+                                  "task_scoped_authorization": {"authorized": False},
+                                  "candidate_sha": "candidate", "explicit_file_allowlist": [],
+                                  "read_file_allowlist": ["README.md"], "verification_mode": "PREVIEW_ONLY"}]}
+    safe = json.loads(json.dumps(baseline))
+    safe["requirements"][0]["title"] = "CEO metadata update"
+    safe["requirements"].append({"task_id": "PLY-TEST-NEW", "dispatch_authorized": False,
+                                 "authorization": {"authorized": False},
+                                 "task_scoped_authorization": "NOT_GRANTED",
+                                 "explicit_file_allowlist": []})
+    assert_backlog_governance_write_safe(baseline, safe)
+    for mutate in (
+        lambda value: value["requirements"][0].update(dispatch_authorized=True),
+        lambda value: value["requirements"][0]["task_scoped_authorization"].update(authorized=True),
+        lambda value: value.update(builds_enabled=True),
+        lambda value: value["requirements"].append({"task_id": "PLY-TEST-BAD", "dispatch_authorized": True,
+                                                     "authorization": {"authorized": True},
+                                                     "task_scoped_authorization": {"authorized": True},
+                                                     "explicit_file_allowlist": ["src/App.tsx"]}),
+    ):
+        candidate = json.loads(json.dumps(baseline))
+        mutate(candidate)
+        try:
+            assert_backlog_governance_write_safe(baseline, candidate)
+        except SafeFailure:
+            continue
+        raise SafeFailure("Backlog governance self-test failed: a protected mutation was accepted.", "WRITE_PATH_SELF_TEST_FAILED")
+
 def self_test_write_path_guards() -> None:
     assert validate_hq_write_target(REPO, "projects/ply_erp_backlog.json") == "projects/ply_erp_backlog.json"
+    self_test_backlog_governance_write_guard()
     blocked = (
         ("bhagyamehta1-lab/PLY_ERP", "state/ceo_command_audit.json"),
         (REPO, "state/task_grants.json"),
@@ -144,6 +209,13 @@ def put_file(path: str, content: str, message: str, token: str):
         for protected in ("system_status", "enterprise_status", "safety"):
             if next_audit.get(protected) != current_audit.get(protected):
                 raise SafeFailure("Audit write rejected: Inbox telemetry cannot alter CEO status or global safety gates.", "SAFETY_FIELD_WRITE_DENIED")
+    elif path == "projects/ply_erp_backlog.json":
+        try:
+            current_backlog = json.loads(current_content)
+            next_backlog = json.loads(content)
+        except json.JSONDecodeError:
+            raise SafeFailure("Backlog write rejected: invalid JSON.", "SCHEMA_MISMATCH") from None
+        assert_backlog_governance_write_safe(current_backlog, next_backlog)
     encoded = urllib.parse.quote(path, safe="/")
     result = request_json(
         "PUT",
