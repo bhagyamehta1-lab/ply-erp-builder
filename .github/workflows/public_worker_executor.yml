@@ -19,7 +19,8 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 * * * *"
+    # Stagger quarter-hour control-plane checks away from GitHub top-of-hour load.
+    - cron: "7,22,37,52 * * * *"
 
 permissions:
   contents: read
