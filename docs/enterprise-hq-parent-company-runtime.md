@@ -1,107 +1,21 @@
 
 
-## Persistent lease-proposal ledger (local, review-only)
+## Persistent successor-lease recovery proposals (local, review-only)
 
-`scripts/enterprise_hq_lease_ledger.py` extends the local SQLite proposal ledger with separate `lease_proposals` and `lease_audit_events` tables:
+scripts/enterprise_hq_recovery_ledger.py extends the unified task, budget, lease, and untrusted-receipt ledger with a recovery_proposals table and a separate recovery_audit_events chain.
 
-- requires the exact parent-company task proposal to exist in the same ledger before a lease proposal can be recorded;
-- accepts only a future first-attempt lease envelope (`NOT_YET_VALID` at the supplied evaluation time), so recording cannot activate an already active or expired lease;
-- enforces one proposal per task and attempt, unique lease IDs, the existing two-attempt ceiling, and the existing 15-minute lease-window limit;
-- persists the lease envelope as `PROPOSED` and appends a separate sequenced SHA-256 audit chain in the same SQLite transaction;
-- treats identical lease proposals as idempotent and rejects conflicting reuse;
-- verifies both the original task proposal chain and the lease proposal chain before any append and after restart;
-- refuses to extend a corrupted lease audit chain;
-- keeps the task status at `PROPOSED` and returns `lease_issued=false`, `execution_authorized=false`, and `automatic_retry=false`.
+- requires the exact task proposal and exact expired first-attempt lease envelope to exist in the same local ledger;
+- validates the successor with the pure recovery contract, requiring attempt 2, a distinct lease ID, no overlap with the previous lease, an expired prior lease, and side_effects_started=false;
+- derives a deterministic recovery ID from the task, prior lease, successor lease ID, and successor-envelope digest;
+- persists at most one successor proposal per task and at most 256 recovery proposals;
+- treats an identical proposal as idempotent and rejects a different successor for the same task;
+- atomically writes the recovery proposal and its own sequenced SHA-256 audit event;
+- verifies all inherited task, budget, lease, receipt, and recovery chains before appending and after restart;
+- refuses to extend a corrupted recovery chain;
+- keeps the row PROPOSED_FOR_HUMAN_REVIEW, with successor_lease_issued=false, automatic_retry=false, and execution_authorized=false.
 
-This stage persists only initial attempt-1 lease proposals. Successor lease validation remains a separate pure contract and is not persisted by this component. The store is local, bounded to 256 lease proposals, and inherits the proposal ledger's 8 MiB database cap and owner-only file checks. It is not encrypted or shared across machines. A persisted row is a future lease proposal for human review, not an issued lease, authenticated worker claim, distributed lock, or execution authorization. No claims, renewals, automatic retries, or task resumption are implemented.
-
-Run the focused suite with:
-
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_lease_ledger.py'
-```
-
-
-## Resource-budget envelope (validation-only)
-
-`scripts/enterprise_hq_resource_budget.py` validates a strict, task-bound budget envelope for internal company work:
-
-- maximum declared runtime: 300 seconds;
-- maximum declared memory: 512 MiB;
-- maximum declared output: 65,536 bytes;
-- network budget: exactly zero and network mode disabled;
-- maximum attempts: the existing two-attempt contract;
-- cloud spend ceiling: exactly USD 0.00;
-- paid services and external effects: disabled;
-- human approval: mandatory.
-
-The envelope is bound to the validated task ID and its SHA-256 proposal digest. Unknown fields, booleans masquerading as integers, over-limit values, nonzero spend, network access, and disabled human review are rejected.
-
-This is a declaration validator only. It does not measure or enforce CPU time, memory, output, retries, network access, or monetary spend. It does not issue credentials, start workers, or authorize execution. A runtime enforcement layer and authenticated principal remain outstanding.
+The persisted successor is a proposal only. It is not inserted into the active lease table, does not claim or renew a lease, and does not resume a task. The local owner-supplied logical identity remains unauthenticated. This is not a distributed lock service or multi-host recovery coordinator.
 
 Run the focused suite with:
 
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_resource_budget.py'
-```
-
-
-## Public observer data minimization
-
-The public observer now reads only `state/company_completion_register.json` from the private control plane. It does not fetch `state/ceo_command_audit.json` or `company_identity.json`. The scheduled automation inspects the live CEO audit privately through the authenticated GitHub connector; raw command history is not needed by the public test workflow. The observer emits aggregate workstream counts and approved status values only. It does not emit titles, owners, blockers, evidence references, audit records, readiness free text, or private file contents.
-
-
-## Task-bound resource-budget persistence (local, review-only)
-
-`scripts/enterprise_hq_budgeted_task_ledger.py` adds a `BudgetedTaskLedger` extension over the existing local SQLite proposal ledger. It creates separate `resource_budgets` and `budget_audit_events` tables in the same database:
-
-- validates each task and its resource-budget envelope before opening a write transaction;
-- requires exact task ID and proposal-digest binding;
-- atomically persists a task proposal, its task audit event, its budget proposal, and its budget audit event;
-- allows one budget proposal per task and rejects conflicting or duplicate budget IDs;
-- treats an identical task/budget pair as idempotent;
-- enforces a separate 256-budget proposal ceiling;
-- verifies both task and budget hash chains before every append and after restart;
-- refuses to extend a corrupted budget chain;
-- keeps budget rows in `PROPOSED` status and returns `budget_enforcement_status=NOT_ENFORCED`, `execution_authorized=false`, and `automatic_retry=false`.
-
-Use `BudgetedTaskLedger` for databases that contain budget proposals so the budget chain is checked along with the task chain. The original `TaskLedger` API remains available for task-only databases and does not itself expose budget-aware proposal methods. This is local SQLite persistence, not a distributed ledger or runtime enforcer. It does not measure CPU, memory, output, network, or spend and cannot start or authorize work.
-
-Run the focused suite with:
-
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
-```
-
-
-## Multi-connection serialization checks
-
-The budget-bound proposal ledger uses SQLite `BEGIN IMMEDIATE` transactions and a bounded two-second busy timeout. Its regression suite now exercises simultaneous writes through six independently opened SQLite connections: identical task/budget proposals collapse to one persisted task and one budget audit event, while two conflicting budgets for the same task yield exactly one accepted binding and one conflict. These tests demonstrate local SQLite writer serialization for the tested scenario; they do not establish distributed coordination, authenticated lease ownership, or multi-host operation.
-
-Run the focused suite with:
-
-```sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
-```
-
-
-## Persistent verification receipt ledger (untrusted claims only)
-
-\`scripts/enterprise_hq_verification_ledger.py\` adds durable storage for structurally valid verification receipt claims. It extends the unified local ledger stack and verifies the task, resource-budget, lease-proposal, and verification-receipt chains before each receipt append and after restart.
-
-- requires the exact task proposal to exist in the same SQLite database;
-- validates task ID, proposal digest, asserted proposer/reviewer separation, logical roles, verdict vocabulary, evidence-digest syntax, and timestamp using the existing receipt contract;
-- persists each receipt as \`UNAUTHENTICATED_CLAIM\` and appends a separate sequenced SHA-256 audit chain in the same transaction;
-- treats an identical receipt ID and payload as idempotent and rejects conflicting reuse;
-- caps receipt proposals at 256 and inherits the local ledger's 8 MiB database cap and owner-only file checks;
-- verifies receipt rows, task binding, audit-event count, sequence, previous hashes, and record hashes before accepting another append;
-- on restart, reports pending untrusted receipts but never resumes execution or retries work.
-
-A receipt remains an untrusted claim. Distinct caller-supplied logical IDs do not authenticate separate principals. Evidence is not retrieved or semantically checked. \`independent_verification_status\` remains \`NOT_ESTABLISHED\`, identity assurance remains \`NOT_AUTHENTICATED\`, and execution remains unauthorized. This ledger is local SQLite persistence, not a distributed verifier service.
-
-Run the focused suite with:
-
-\`\`\`sh
-python -m unittest discover -s tests -p 'test_enterprise_hq_verification_ledger.py'
-\`\`\`
-
+python -m unittest discover -s tests -p 'test_enterprise_hq_recovery_ledger.py'
