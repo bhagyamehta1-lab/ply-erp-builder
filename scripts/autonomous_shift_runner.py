@@ -583,6 +583,19 @@ def preflight():
     return 0
 
 
+def read_resource_telemetry():
+    """Read only aggregate snapshots; these are written to the private HQ checkpoint, never public logs."""
+    try:
+        module = runpy.run_path("scripts/worker_telemetry.py")
+        summarize = module["load_pair"]
+        return summarize(
+            "/dev/shm/enterprise_workspace/telemetry_start.json",
+            "/dev/shm/enterprise_workspace/telemetry_end.json",
+        )
+    except Exception:
+        return {"status": "UNAVAILABLE", "sample_count": 0}
+
+
 def checkpoint():
     token = os.environ.get("ENTERPRISE_HQ_AUDIT_APPEND_TOKEN") or os.environ.get("ENTERPRISE_HQ_WRITE_TOKEN", "")
     if not token:
@@ -622,9 +635,11 @@ def checkpoint():
     policy_state = os.environ.get("AUTONOMY_POLICY_STATE", "")
     blocked_state = policy_state if policy_state.startswith("BLOCKED_") or policy_state.startswith("SKIPPED_") else ""
     checkpoint_state = "VERIFIED_PASS" if passed else (blocked_state or "VERIFICATION_FAILED")
+    resource_telemetry = read_resource_telemetry()
     record = {
         "timestamp": now(),
         "event": os.environ.get("GITHUB_EVENT_NAME"),
+        "resource_telemetry": resource_telemetry,
         "run_id": run_id,
         "worker_commit": os.environ.get("GITHUB_SHA"),
         "task_id": os.environ.get("AUTONOMY_TASK_ID", "UNKNOWN") or None,
@@ -661,6 +676,7 @@ def checkpoint():
             "preview_artifact": preview_artifact_outcome,
             "aggregate": checkpoint_state,
         },
+        "resource_telemetry": resource_telemetry,
         "recorded_at": now(),
     }, token)
 
