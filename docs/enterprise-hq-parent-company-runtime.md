@@ -49,3 +49,26 @@ python -m unittest discover -s tests -p 'test_enterprise_hq_resource_budget.py'
 ## Public observer data minimization
 
 The public observer now reads only `state/company_completion_register.json` from the private control plane. It does not fetch `state/ceo_command_audit.json` or `company_identity.json`. The scheduled automation inspects the live CEO audit privately through the authenticated GitHub connector; raw command history is not needed by the public test workflow. The observer emits aggregate workstream counts and approved status values only. It does not emit titles, owners, blockers, evidence references, audit records, readiness free text, or private file contents.
+
+
+## Task-bound resource-budget persistence (local, review-only)
+
+`scripts/enterprise_hq_budgeted_task_ledger.py` adds a `BudgetedTaskLedger` extension over the existing local SQLite proposal ledger. It creates separate `resource_budgets` and `budget_audit_events` tables in the same database:
+
+- validates each task and its resource-budget envelope before opening a write transaction;
+- requires exact task ID and proposal-digest binding;
+- atomically persists a task proposal, its task audit event, its budget proposal, and its budget audit event;
+- allows one budget proposal per task and rejects conflicting or duplicate budget IDs;
+- treats an identical task/budget pair as idempotent;
+- enforces a separate 256-budget proposal ceiling;
+- verifies both task and budget hash chains before every append and after restart;
+- refuses to extend a corrupted budget chain;
+- keeps budget rows in `PROPOSED` status and returns `budget_enforcement_status=NOT_ENFORCED`, `execution_authorized=false`, and `automatic_retry=false`.
+
+Use `BudgetedTaskLedger` for databases that contain budget proposals so the budget chain is checked along with the task chain. The original `TaskLedger` API remains available for task-only databases and does not itself expose budget-aware proposal methods. This is local SQLite persistence, not a distributed ledger or runtime enforcer. It does not measure CPU, memory, output, network, or spend and cannot start or authorize work.
+
+Run the focused suite with:
+
+```sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
+```
