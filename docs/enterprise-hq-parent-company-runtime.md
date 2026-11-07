@@ -44,3 +44,8 @@ Run the focused suite with:
 ```sh
 python -m unittest discover -s tests -p 'test_enterprise_hq_resource_budget.py'
 ```
+
+
+## Public observer data minimization
+
+The public observer now reads only `state/company_completion_register.json` from the private control plane. It does not fetch `state/ceo_command_audit.json` or `company_identity.json`. The scheduled automation inspects the live CEO audit privately through the authenticated GitHub connector; raw command history is not needed by the public test workflow. The observer emits aggregate workstream counts and approved status values only. It does not emit titles, owners, blockers, evidence references, audit records, readiness free text, or private file contents.
