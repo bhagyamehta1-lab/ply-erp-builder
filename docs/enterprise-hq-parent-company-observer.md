@@ -16,7 +16,7 @@ It does not read product source, task seed records, department rosters, role con
 
 The public artifact contains only aggregate counts and status fields. It excludes private file contents, audit timestamps, task identifiers, grant identifiers, raw safety-gate values, secrets, and product source. A fixed path allowlist, a 512 KiB per-record response cap, and sanitized error codes make the read boundary explicit.
 
-The read token is exposed only to the single metadata-read step. The job declares `contents: read`, checkout credentials are not persisted, and the only artifact is the aggregate JSON summary with seven-day retention.
+The read token is exposed only to the single metadata-read step. The job declares `contents: read`, checkout credentials are not persisted, and the only artifact is the aggregate JSON summary with one-day retention.
 
 ## Execution and recovery
 

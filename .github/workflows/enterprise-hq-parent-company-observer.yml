@@ -43,4 +43,4 @@ jobs:
           name: enterprise-hq-parent-company-summary-${{ github.run_id }}
           path: ${{ runner.temp }}/enterprise-hq-company-summary.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
