@@ -15,5 +15,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Run domain tests
         run: node --test src/*.test.mjs
+      - name: Compile external watchdog
+        run: python -m py_compile scripts/external_worker_watchdog.py scripts/test_external_worker_watchdog.py
+      - name: Test external watchdog decisions
+        run: python -m unittest discover -s scripts -p 'test_external_worker_watchdog.py' -v
