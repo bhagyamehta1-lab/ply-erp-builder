@@ -82,3 +82,33 @@ authenticated reviewer identity remain unimplemented.
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_principal_replay_ledger.py'
+
+
+## Principal trust-policy envelope (structural, not a trust store)
+
+`scripts/enterprise_hq_principal_trust_policy.py` adds a pure, fail-closed matcher
+for an explicitly supplied issuer/key policy envelope. It checks exact schema,
+issuer and key identifiers, Ed25519 algorithm label, SHA-256 key-fingerprint
+format, audience and principal-type allowlists, policy status, revocation state,
+timezone-aware validity, and that the complete attestation lifetime fits inside
+the policy lifetime.
+
+- unknown fields and missing policy fields are rejected;
+- DISABLED and REVOKED policy states fail closed;
+- a caller-supplied key fingerprint is only a reference string, not key material
+  and is not cryptographically verified by this module;
+- the returned status is MATCHED_UNTRUSTED_POLICY_ENVELOPE;
+- cryptographic verification remains NOT_PERFORMED, identity_authenticated is
+  false, and execution_authorized is false.
+
+This is a structural pre-verification contract only. It is not yet wired into the
+principal verifier pipeline, has no authenticated policy source or trust store,
+does not load keys, and does not establish issuer ownership, key custody, or
+reviewer independence. The test policy is synthetic and must not be used as a
+production trust anchor.
+
+Run the focused suite with:
+
+```bash
+python -m unittest discover -s tests -p 'test_enterprise_hq_principal_trust_policy.py'
+```
