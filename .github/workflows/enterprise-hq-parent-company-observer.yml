@@ -51,6 +51,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_recovery_ledger.py'
       - name: Test fail-closed principal attestation contract
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_principal_contract.py'
+      - name: Test persistent principal nonce replay protection
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_principal_replay_ledger.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
