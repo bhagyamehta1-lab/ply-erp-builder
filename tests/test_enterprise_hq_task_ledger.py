@@ -1,4 +1,6 @@
+import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,6 +33,32 @@ class TaskLedgerTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_new_database_is_created_owner_only(self):
+        with TaskLedger(self.database) as ledger:
+            self.assertEqual(ledger.verify()["integrity"], "PASS")
+        self.assertEqual(stat.S_IMODE(self.database.stat().st_mode), 0o600)
+
+    def test_rejects_symlink_database_path(self):
+        target = Path(self.temp_dir.name) / "target.sqlite3"
+        target.write_bytes(b"")
+        link = Path(self.temp_dir.name) / "linked.sqlite3"
+        link.symlink_to(target)
+        with self.assertRaisesRegex(LedgerError, "LEDGER_PATH_UNSAFE"):
+            TaskLedger(link)
+
+    def test_rejects_group_or_world_accessible_existing_database(self):
+        self.database.write_bytes(b"")
+        self.database.chmod(0o644)
+        with self.assertRaisesRegex(LedgerError, "LEDGER_FILE_PERMISSIONS_UNSAFE"):
+            TaskLedger(self.database)
+
+    def test_rejects_oversized_existing_database(self):
+        self.database.write_bytes(b"x" * 16)
+        self.database.chmod(0o600)
+        with patch("scripts.enterprise_hq_task_ledger.MAX_LEDGER_FILE_BYTES", 8):
+            with self.assertRaisesRegex(LedgerError, "LEDGER_FILE_TOO_LARGE"):
+                TaskLedger(self.database)
 
     def test_proposal_is_durable_across_reopen_and_recovery_is_read_only(self):
         with TaskLedger(self.database) as ledger:
@@ -90,6 +118,20 @@ class TaskLedgerTests(unittest.TestCase):
         with TaskLedger(self.database) as reopened:
             with self.assertRaisesRegex(LedgerCorruptionError, "AUDIT_CHAIN_HASH_INVALID"):
                 reopened.recover_after_restart()
+
+    def test_corrupt_chain_cannot_be_extended_by_new_proposal(self):
+        with TaskLedger(self.database) as ledger:
+            ledger.propose_many([task()])
+        connection = sqlite3.connect(self.database)
+        connection.execute("UPDATE audit_events SET record_hash = ?", ("0" * 64,))
+        connection.commit()
+        connection.close()
+        with TaskLedger(self.database) as reopened:
+            with self.assertRaisesRegex(LedgerCorruptionError, "AUDIT_CHAIN_HASH_INVALID"):
+                reopened.propose_many([task(task_id="HQ-002")])
+            connection = sqlite3.connect(self.database)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 1)
+            connection.close()
 
     def test_capacity_is_bounded(self):
         with TaskLedger(self.database) as ledger:

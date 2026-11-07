@@ -21,7 +21,8 @@ It enforces an exact private-path allowlist and a 512 KiB response cap. Base64 w
 - accepts only HQ task IDs and WS-01 through WS-11;
 - accepts only internal research, internal documentation, internal code, and read-only audit task kinds;
 - rejects extra payload fields, product workstream IDs, external effects, unapproved task plans, and non-zero initial attempts;
-- caps a batch at eight tasks and applies per-task and per-batch byte limits;
+- rejects empty batches, caps a batch at eight tasks, and applies per-task and per-batch byte limits;
+- exposes the task-kind-to-role policy as an immutable mapping;
 - routes task kinds to deterministic logical roles;
 - derives stable SHA-256 idempotency keys;
 - creates hash-chained metadata audit records;
@@ -34,14 +35,17 @@ These are logical roles, not authenticated people or worker processes. The verif
 `scripts/enterprise_hq_task_ledger.py` adds a bounded SQLite proposal ledger using only Python's standard library:
 
 - persists up to 256 validated task proposals;
+- caps the database at 8 MiB and applies a matching SQLite page-count limit;
+- creates new database files with owner-only permissions and rejects symlink, non-regular, multiply-linked, non-owner-owned, broadly accessible, or oversized database files;
 - uses SQLite transactions (`BEGIN IMMEDIATE`) so a proposal and its audit event commit or roll back together;
+- verifies the existing ledger before every append, refusing to extend a corrupt chain;
 - treats identical proposals as idempotent and rejects a task ID reused with different content;
 - stores only the strict task-contract fields and deterministic logical role;
 - records a sequenced SHA-256 event chain and verifies it on reopen;
-- checks SQLite integrity, task schema, idempotency keys, event count, event ordering, role attribution and chain hashes;
+- checks SQLite integrity, foreign keys, task schema, idempotency keys, event count, event ordering, timezone-aware timestamps, role attribution and chain hashes;
 - keeps every task in `PROPOSED` / human-review-required state.
 
-The restart check proves only that local proposal records and their audit chain can be reopened and verified. It does not recover a running worker, renew a lease, authenticate an actor, resume a task, or retry work. The ledger has no claim, execution, dispatch, network, or result-verification API. The database is a local runtime component and has not been provisioned as a shared or production service.
+The SQLite file is local and is not encrypted by this module. The implementation does not store prompts or task descriptions, but the host filesystem must still be trusted. Existing files with unsafe permissions are rejected, not silently chmodded. The restart check proves only that local proposal records and their audit chain can be reopened and verified. It does not recover a running worker, renew a lease, authenticate an actor, resume a task, or retry work. The ledger has no claim, execution, dispatch, network, or result-verification API. The database is a local runtime component and has not been provisioned as a shared or production service.
 
 ## Execution and verification limits
 

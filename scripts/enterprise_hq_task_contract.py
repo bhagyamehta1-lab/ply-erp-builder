@@ -9,14 +9,15 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from types import MappingProxyType
 
 ALLOWED_WORKSTREAMS = frozenset(f"WS-{number:02d}" for number in range(1, 12))
-TASK_KIND_TO_ROLE = {
+TASK_KIND_TO_ROLE = MappingProxyType({
     "INTERNAL_RESEARCH": "RESEARCH_ANALYST",
     "INTERNAL_DOCUMENTATION": "DOCUMENTATION_STEWARD",
     "INTERNAL_CODE": "CODE_MAINTAINER",
     "READ_ONLY_AUDIT": "READ_ONLY_AUDITOR",
-}
+})
 ALLOWED_LOGICAL_ROLES = frozenset((*TASK_KIND_TO_ROLE.values(), "INDEPENDENT_VERIFIER"))
 ALLOWED_AUDIT_EVENTS = frozenset({
     "TASK_PROPOSED",
@@ -92,7 +93,7 @@ def validate_task(task: Mapping) -> dict:
 
 
 def validate_batch(tasks: list) -> list[dict]:
-    if not isinstance(tasks, list) or len(tasks) > MAX_TASKS_PER_BATCH:
+    if not isinstance(tasks, list) or not tasks or len(tasks) > MAX_TASKS_PER_BATCH:
         raise ContractError("BATCH_SIZE_INVALID")
     normalized = [validate_task(task) for task in tasks]
     identifiers = [task["task_id"] for task in normalized]
@@ -110,10 +111,26 @@ def route_task(task: Mapping) -> dict:
 
 
 def verification_plan(validated_task: Mapping) -> dict:
-    if not isinstance(validated_task, Mapping) or validated_task.get("logical_role") not in TASK_KIND_TO_ROLE.values():
+    expected_fields = {
+        "task_id", "workstream_id", "task_kind", "attempt",
+        "status", "logical_role", "idempotency_key",
+    }
+    if not isinstance(validated_task, Mapping) or set(validated_task) != expected_fields:
+        raise ContractError("VERIFIED_TASK_ENVELOPE_INVALID")
+    task_id = _validate_task_id(validated_task.get("task_id"))
+    task_kind = validated_task.get("task_kind")
+    if (validated_task.get("workstream_id") not in ALLOWED_WORKSTREAMS
+            or not isinstance(task_kind, str)
+            or task_kind not in TASK_KIND_TO_ROLE
+            or validated_task.get("logical_role") != TASK_KIND_TO_ROLE[task_kind]
+            or type(validated_task.get("attempt")) is not int
+            or validated_task.get("attempt") != 0
+            or validated_task.get("status") != "PROPOSED"
+            or not isinstance(validated_task.get("idempotency_key"), str)
+            or not SHA256_PATTERN.fullmatch(validated_task["idempotency_key"])):
         raise ContractError("ASSIGNEE_ROLE_INVALID")
     return {
-        "task_id": _validate_task_id(validated_task.get("task_id")),
+        "task_id": task_id,
         "assignee_role": validated_task["logical_role"],
         "verifier_role": "INDEPENDENT_VERIFIER",
         "verification_status": "REVIEW_REQUIRED",

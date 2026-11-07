@@ -1,6 +1,8 @@
 import unittest
 
 from scripts.enterprise_hq_task_contract import (
+    ALLOWED_WORKSTREAMS,
+    TASK_KIND_TO_ROLE,
     ContractError,
     make_audit_record,
     recovery_decision,
@@ -76,11 +78,28 @@ class TaskContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "BATCH_SIZE_INVALID"):
             validate_batch([task(task_id=f"HQ-{i:03d}") for i in range(9)])
 
+    def test_empty_batch_is_rejected(self):
+        with self.assertRaisesRegex(ContractError, "BATCH_SIZE_INVALID"):
+            validate_batch([])
+
+    def test_role_policy_cannot_be_mutated_at_runtime(self):
+        with self.assertRaises(TypeError):
+            TASK_KIND_TO_ROLE["INTERNAL_RESEARCH"] = "UNSAFE_ROLE"
+        self.assertEqual(TASK_KIND_TO_ROLE["INTERNAL_RESEARCH"], "RESEARCH_ANALYST")
+
     def test_verification_plan_separates_logical_roles_without_claiming_identity(self):
         plan = verification_plan(validate_task(task()))
         self.assertNotEqual(plan["assignee_role"], plan["verifier_role"])
         self.assertEqual(plan["verification_status"], "REVIEW_REQUIRED")
         self.assertEqual(plan["identity_assurance"], "NOT_AUTHENTICATED")
+
+    def test_verification_plan_rejects_forged_or_incomplete_envelopes(self):
+        validated = validate_task(task())
+        forged_role = dict(validated, logical_role="INDEPENDENT_VERIFIER")
+        with self.assertRaisesRegex(ContractError, "ASSIGNEE_ROLE_INVALID"):
+            verification_plan(forged_role)
+        with self.assertRaisesRegex(ContractError, "VERIFIED_TASK_ENVELOPE_INVALID"):
+            verification_plan({"task_id": "HQ-001", "logical_role": "RESEARCH_ANALYST"})
 
     def test_recovery_is_bounded_and_never_dispatches(self):
         self.assertEqual(recovery_decision(0, False, False), "NO_ACTION")
