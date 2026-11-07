@@ -271,8 +271,8 @@ class VerificationReceiptLedgerTests(unittest.TestCase):
             self.assertFalse(result["automatic_retry"])
 
     def test_concurrent_identical_receipts_are_serialized(self):
-        with VerificationReceiptLedger(self.database):
-            pass
+        with VerificationReceiptLedger(self.database) as ledger:
+            ledger.propose_many([self.task])
         worker_count = 6
         barrier = Barrier(worker_count)
         initialization_lock = Lock()
