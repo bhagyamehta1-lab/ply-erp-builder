@@ -1,4 +1,6 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
 import tempfile
 import unittest
 from pathlib import Path
@@ -235,6 +237,71 @@ class BudgetedTaskLedgerTests(unittest.TestCase):
             verified = ledger.verify()
             self.assertEqual(verified["budget_enforcement_status"], "NOT_ENFORCED")
             self.assertFalse(ledger.recover_after_restart()["execution_resumed"])
+
+
+    def test_concurrent_identical_budgeted_proposals_are_serialized(self):
+        with BudgetedTaskLedger(self.database):
+            pass
+        worker_count = 6
+        barrier = Barrier(worker_count)
+        initialization_lock = Lock()
+
+        def submit():
+            with initialization_lock:
+                ledger = BudgetedTaskLedger(self.database)
+            try:
+                barrier.wait(timeout=10)
+                return ledger.propose_many_with_budgets([self.pair()])
+            finally:
+                ledger.close()
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            results = list(executor.map(lambda _: submit(), range(worker_count)))
+
+        self.assertEqual(sum(item["created_tasks"] for item in results), 1)
+        self.assertEqual(sum(item["created_budgets"] for item in results), 1)
+        self.assertEqual(sum(item["budgets_already_present"] for item in results), worker_count - 1)
+        with BudgetedTaskLedger(self.database) as ledger:
+            verified = ledger.verify()
+            self.assertEqual(verified["task_count"], 1)
+            self.assertEqual(verified["budget_count"], 1)
+            self.assertEqual(verified["audit_event_count"], 1)
+            self.assertEqual(verified["budget_audit_event_count"], 1)
+
+    def test_concurrent_conflicting_budgets_allow_only_one_binding(self):
+        with BudgetedTaskLedger(self.database):
+            pass
+        barrier = Barrier(2)
+        initialization_lock = Lock()
+
+        def submit(budget_id):
+            with initialization_lock:
+                ledger = BudgetedTaskLedger(self.database)
+            try:
+                barrier.wait(timeout=10)
+                try:
+                    return ("created", ledger.propose_many_with_budgets([
+                        self.pair(budget_id=budget_id)
+                    ]))
+                except TaskConflictError as exc:
+                    return ("conflict", str(exc))
+            finally:
+                ledger.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(
+                submit, ("HQB-CONCURRENT-A", "HQB-CONCURRENT-B")
+            ))
+
+        outcomes = [item[0] for item in results]
+        self.assertEqual(outcomes.count("created"), 1)
+        self.assertEqual(outcomes.count("conflict"), 1)
+        with BudgetedTaskLedger(self.database) as ledger:
+            verified = ledger.verify()
+            self.assertEqual(verified["task_count"], 1)
+            self.assertEqual(verified["budget_count"], 1)
+            self.assertEqual(verified["audit_event_count"], 1)
+            self.assertEqual(verified["budget_audit_event_count"], 1)
 
 
 if __name__ == "__main__":

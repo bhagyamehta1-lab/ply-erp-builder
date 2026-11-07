@@ -72,3 +72,14 @@ Run the focused suite with:
 ```sh
 python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
 ```
+
+
+## Multi-connection serialization checks
+
+The budget-bound proposal ledger uses SQLite `BEGIN IMMEDIATE` transactions and a bounded two-second busy timeout. Its regression suite now exercises simultaneous writes through six independently opened SQLite connections: identical task/budget proposals collapse to one persisted task and one budget audit event, while two conflicting budgets for the same task yield exactly one accepted binding and one conflict. These tests demonstrate local SQLite writer serialization for the tested scenario; they do not establish distributed coordination, authenticated lease ownership, or multi-host operation.
+
+Run the focused suite with:
+
+```sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
+```
