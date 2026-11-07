@@ -242,54 +242,48 @@ class PrincipalPolicyLedgerTests(unittest.TestCase):
         self.assertFalse(result["execution_authorized"])
 
     def test_concurrent_identical_snapshots_pin_once(self):
-        second = PrincipalPolicyLedger(self.database)
-        try:
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [
-                    pool.submit(self.record),
-                    pool.submit(
-                        second.record_policy_snapshot,
-                        snapshot_fixture(), policy_fixture(),
-                        expected_issuer=ISSUER, expected_key_id=KEY_ID, now=NOW,
-                    ),
-                ]
-                results = [future.result() for future in futures]
-            self.assertEqual(
-                sorted(result["status"] for result in results),
-                ["ALREADY_PINNED", "PINNED_UNTRUSTED_SNAPSHOT"],
-            )
-            self.assertEqual(self.ledger.verify()["principal_policy_audit_event_count"], 1)
-        finally:
-            second.close()
+        def attempt():
+            ledger = PrincipalPolicyLedger(self.database)
+            try:
+                return ledger.record_policy_snapshot(
+                    snapshot_fixture(), policy_fixture(),
+                    expected_issuer=ISSUER, expected_key_id=KEY_ID, now=NOW,
+                )["status"]
+            finally:
+                ledger.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: attempt(), range(2)))
+        self.assertEqual(
+            sorted(results), ["ALREADY_PINNED", "PINNED_UNTRUSTED_SNAPSHOT"]
+        )
+        self.assertEqual(self.ledger.verify()["principal_policy_audit_event_count"], 1)
 
     def test_concurrent_conflicting_snapshots_have_one_winner(self):
-        second = PrincipalPolicyLedger(self.database)
         changed = policy_fixture(audiences=[AUDIENCE, "other-runtime"])
-        try:
-            def attempt(ledger, policy):
+
+        def attempt(policy):
+            ledger = PrincipalPolicyLedger(self.database)
+            try:
                 snapshot = snapshot_fixture(policy)
-                try:
-                    return ledger.record_policy_snapshot(
-                        snapshot, policy, expected_issuer=ISSUER,
-                        expected_key_id=KEY_ID, now=NOW,
-                    )["status"]
-                except PrincipalPolicyLedgerError as exc:
-                    return str(exc)
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = [
-                    pool.submit(attempt, self.ledger, policy_fixture()),
-                    pool.submit(attempt, second, changed),
-                ]
-                results = [future.result() for future in futures]
-            self.assertEqual(
-                sum(value == "PINNED_UNTRUSTED_SNAPSHOT" for value in results), 1
-            )
-            self.assertEqual(
-                sum(value == "PRINCIPAL_POLICY_REVISION_CONFLICT" for value in results), 1
-            )
-            self.assertEqual(self.ledger.verify()["principal_policy_audit_event_count"], 1)
-        finally:
-            second.close()
+                return ledger.record_policy_snapshot(
+                    snapshot, policy, expected_issuer=ISSUER,
+                    expected_key_id=KEY_ID, now=NOW,
+                )["status"]
+            except PrincipalPolicyLedgerError as exc:
+                return str(exc)
+            finally:
+                ledger.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(attempt, [policy_fixture(), changed]))
+        self.assertEqual(
+            sum(value == "PINNED_UNTRUSTED_SNAPSHOT" for value in results), 1
+        )
+        self.assertEqual(
+            sum(value == "PRINCIPAL_POLICY_REVISION_CONFLICT" for value in results), 1
+        )
+        self.assertEqual(self.ledger.verify()["principal_policy_audit_event_count"], 1)
 
     def test_capacity_fails_closed(self):
         with patch("scripts.enterprise_hq_principal_policy_ledger.MAX_PRINCIPAL_POLICY_SNAPSHOTS", 1):
