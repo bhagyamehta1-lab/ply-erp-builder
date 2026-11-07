@@ -119,7 +119,8 @@ jobs:
           ENTERPRISE_HQ_WRITE_TOKEN: ${{ secrets.ENTERPRISE_HQ_WRITE_TOKEN }}
           HQ_TO_PLY_ERP_TOKEN: ${{ secrets.HQ_TO_PLY_ERP_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
-          HQ_ENABLE_MODEL_BRAIN: "true"
+          # GitHub Models inference API was retired on 2026-07-30; keep the optional external advisory disabled.
+          HQ_ENABLE_MODEL_BRAIN: "false"
           GH_MODELS_MODEL: "openai/gpt-4o-mini"
         shell: bash
         run: |
