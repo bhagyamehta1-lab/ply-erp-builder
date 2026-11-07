@@ -1,0 +1,44 @@
+name: Enterprise-HQ Parent Company Observer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17,47 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-hq-parent-company-observer
+  cancel-in-progress: false
+
+jobs:
+  observe-parent-company:
+    name: Read-only parent-company status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
+    steps:
+      - name: Checkout sanitized public worker
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: false
+      - name: Test aggregate observer
+        run: python -m unittest tests/test_enterprise_hq_company_observer.py
+      - name: Read private HQ metadata and emit aggregate-only report
+        run: |
+          python scripts/enterprise_hq_company_observer.py --output "$RUNNER_TEMP/enterprise-hq-company-summary.json"
+      - name: Store aggregate-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-hq-parent-company-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/enterprise-hq-company-summary.json
+          if-no-files-found: ignore
+          retention-days: 7
