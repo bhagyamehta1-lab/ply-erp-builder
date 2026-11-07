@@ -61,6 +61,9 @@ ledger.
   cannot be reused by that principal across tasks;
 - permits only one accepted worker identity per lease proposal and one reviewer
   identity per receipt claim;
+- rejects the same issuer/principal ID from occupying both WORKER and REVIEWER roles
+  for the same task, with the check serialized in the nonce-consumption transaction;
+- verifies the cross-role identity invariant during ledger integrity checks;
 - serializes concurrent consumers with the inherited SQLite BEGIN IMMEDIATE
   transaction and unique constraints;
 - persists only a SHA-256 nonce fingerprint and attestation digest, never the raw
@@ -71,6 +74,11 @@ ledger.
 - never deletes expired records automatically, so replay history is not silently
   discarded;
 - keeps execution_authorized=false and never issues a lease or resumes a task.
+
+The cross-role guard prevents direct reuse of the same issuer/principal ID for
+worker and reviewer claims on one task. It does not prove human or agent independence:
+one person could still use different IDs, aliases, or issuer namespaces. The guard is
+a deterministic anti-self-review invariant, not independent-agent authentication.
 
 The replay ledger is local SQLite state, not a distributed replay cache. Its hash
 chain detects inconsistent or accidental modification but is not a keyed tamper-proof

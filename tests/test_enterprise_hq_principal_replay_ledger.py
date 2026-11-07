@@ -364,6 +364,150 @@ class PrincipalReplayLedgerTests(unittest.TestCase):
                 verifier=FakeVerifier()
             )
 
+    def test_same_identity_cannot_be_worker_and_reviewer_for_same_task(self):
+        self.persist_lease()
+        self.persist_receipt()
+        self.record_worker(principal_id="SHARED.PRINCIPAL.001")
+
+        reviewer = attestation_fixture(
+            self.task,
+            self.now,
+            principal_type="REVIEWER",
+            nonce="reviewer_cross_role_nonce_0001",
+            principal_id="SHARED.PRINCIPAL.001",
+        )
+        with self.assertRaisesRegex(
+            PrincipalReplayError, "PRINCIPAL_CROSS_ROLE_IDENTITY_REUSE"
+        ):
+            self.ledger.record_verified_principal(
+                self.task,
+                reviewer,
+                expected_audience=AUDIENCE,
+                expected_receipt_id="HQV-REPLAY-01",
+                now=self.now,
+                verifier=FakeVerifier(),
+            )
+        verified = self.ledger.verify()
+        self.assertEqual(verified["principal_nonce_use_count"], 1)
+        self.assertEqual(verified["principal_nonce_audit_chain"], "VALID")
+
+    def test_reviewer_identity_cannot_later_claim_worker_role_on_same_task(self):
+        self.persist_receipt()
+        reviewer = attestation_fixture(
+            self.task,
+            self.now,
+            principal_type="REVIEWER",
+            nonce="reviewer_cross_role_nonce_0002",
+            principal_id="SHARED.PRINCIPAL.002",
+        )
+        self.ledger.record_verified_principal(
+            self.task,
+            reviewer,
+            expected_audience=AUDIENCE,
+            expected_receipt_id="HQV-REPLAY-01",
+            now=self.now,
+            verifier=FakeVerifier(),
+        )
+        self.persist_lease()
+        worker = attestation_fixture(
+            self.task,
+            self.now,
+            nonce="worker_cross_role_nonce_0002",
+            principal_id="SHARED.PRINCIPAL.002",
+        )
+        with self.assertRaisesRegex(
+            PrincipalReplayError, "PRINCIPAL_CROSS_ROLE_IDENTITY_REUSE"
+        ):
+            self.ledger.record_verified_principal(
+                self.task,
+                worker,
+                expected_audience=AUDIENCE,
+                expected_lease_id="HQL-REPLAY-01",
+                now=self.now,
+                verifier=FakeVerifier(),
+            )
+        verified = self.ledger.verify()
+        self.assertEqual(verified["principal_nonce_use_count"], 1)
+        self.assertEqual(verified["principal_nonce_audit_chain"], "VALID")
+
+    def test_same_principal_may_hold_different_roles_on_different_tasks(self):
+        self.persist_lease()
+        self.record_worker(principal_id="SHARED.PRINCIPAL.003")
+
+        second_task = task_fixture("HQ-REPLAY-CROSS-ROLE-02")
+        self.ledger.propose_many([second_task])
+        self.persist_receipt(second_task, receipt_id="HQV-REPLAY-CROSS-ROLE-02")
+        reviewer = attestation_fixture(
+            second_task,
+            self.now,
+            principal_type="REVIEWER",
+            nonce="reviewer_cross_role_nonce_0003",
+            principal_id="SHARED.PRINCIPAL.003",
+            receipt_id="HQV-REPLAY-CROSS-ROLE-02",
+        )
+        result = self.ledger.record_verified_principal(
+            second_task,
+            reviewer,
+            expected_audience=AUDIENCE,
+            expected_receipt_id="HQV-REPLAY-CROSS-ROLE-02",
+            now=self.now,
+            verifier=FakeVerifier(),
+        )
+        self.assertEqual(result["principal_type"], "REVIEWER")
+        self.assertEqual(self.ledger.verify()["principal_nonce_use_count"], 2)
+
+    def test_concurrent_worker_and_reviewer_claims_for_same_identity_allow_one_role(self):
+        self.persist_lease()
+        self.persist_receipt()
+        worker = attestation_fixture(
+            self.task,
+            self.now,
+            nonce="worker_cross_role_race_0001",
+            principal_id="SHARED.PRINCIPAL.RACE",
+        )
+        reviewer = attestation_fixture(
+            self.task,
+            self.now,
+            principal_type="REVIEWER",
+            nonce="reviewer_cross_role_race_0001",
+            principal_id="SHARED.PRINCIPAL.RACE",
+        )
+
+        def consume(principal_type):
+            connection = PrincipalReplayLedger(self.database)
+            try:
+                if principal_type == "WORKER":
+                    return connection.record_verified_principal(
+                        self.task,
+                        worker,
+                        expected_audience=AUDIENCE,
+                        expected_lease_id="HQL-REPLAY-01",
+                        now=self.now,
+                        verifier=FakeVerifier(),
+                    )
+                return connection.record_verified_principal(
+                    self.task,
+                    reviewer,
+                    expected_audience=AUDIENCE,
+                    expected_receipt_id="HQV-REPLAY-01",
+                    now=self.now,
+                    verifier=FakeVerifier(),
+                )
+            except Exception as exc:
+                return ("ERROR", str(exc))
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(consume, ("WORKER", "REVIEWER")))
+
+        successes = [item for item in results if isinstance(item, dict)]
+        failures = [item for item in results if isinstance(item, tuple)]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][1], "PRINCIPAL_CROSS_ROLE_IDENTITY_REUSE")
+        self.assertEqual(self.ledger.verify()["principal_nonce_use_count"], 1)
+
     def test_rejected_signature_does_not_consume_nonce(self):
         self.persist_lease()
         attestation = attestation_fixture(self.task, self.now)

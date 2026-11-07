@@ -104,6 +104,10 @@ class PrincipalReplayLedger(SuccessorLeaseRecoveryLedger):
                 "CREATE INDEX IF NOT EXISTS principal_nonce_uses_task_id_idx "
                 "ON principal_nonce_uses(task_id)"
             )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS principal_nonce_uses_task_identity_idx "
+                "ON principal_nonce_uses(task_id, issuer, principal_id, principal_type)"
+            )
         except Exception:
             self.close()
             raise
@@ -255,6 +259,15 @@ class PrincipalReplayLedger(SuccessorLeaseRecoveryLedger):
                 ):
                     raise LedgerError("PRINCIPAL_REVIEW_RECEIPT_NOT_PERSISTED")
 
+            cross_role_identity = self._connection.execute(
+                """SELECT 1 FROM principal_nonce_uses
+                   WHERE task_id = ? AND issuer = ? AND principal_id = ?
+                     AND principal_type != ? LIMIT 1""",
+                (task_id, issuer, principal_id, principal_type),
+            ).fetchone()
+            if cross_role_identity is not None:
+                raise PrincipalReplayError("PRINCIPAL_CROSS_ROLE_IDENTITY_REUSE")
+
             existing_nonce = self._connection.execute(
                 "SELECT 1 FROM principal_nonce_uses WHERE nonce_fingerprint = ?",
                 (nonce_fingerprint,),
@@ -336,7 +349,15 @@ class PrincipalReplayLedger(SuccessorLeaseRecoveryLedger):
 
         use_map = {}
         seen_bindings = set()
+        task_principal_roles = {}
         for row in uses:
+            identity_key = (row["task_id"], row["issuer"], row["principal_id"])
+            roles = task_principal_roles.setdefault(identity_key, set())
+            roles.add(row["principal_type"])
+            if len(roles) > 1:
+                raise PrincipalReplayCorruptionError(
+                    "PRINCIPAL_CROSS_ROLE_IDENTITY_REUSE"
+                )
             binding_key = (row["principal_type"], row["binding_id"])
             if (
                 not _HEX_64.fullmatch(row["nonce_fingerprint"])
