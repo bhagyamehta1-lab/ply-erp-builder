@@ -118,8 +118,10 @@ def verification_plan(validated_task: Mapping) -> dict:
     if not isinstance(validated_task, Mapping) or set(validated_task) != expected_fields:
         raise ContractError("VERIFIED_TASK_ENVELOPE_INVALID")
     task_id = _validate_task_id(validated_task.get("task_id"))
+    workstream_id = validated_task.get("workstream_id")
     task_kind = validated_task.get("task_kind")
-    if (validated_task.get("workstream_id") not in ALLOWED_WORKSTREAMS
+    if (not isinstance(workstream_id, str)
+            or workstream_id not in ALLOWED_WORKSTREAMS
             or not isinstance(task_kind, str)
             or task_kind not in TASK_KIND_TO_ROLE
             or validated_task.get("logical_role") != TASK_KIND_TO_ROLE[task_kind]

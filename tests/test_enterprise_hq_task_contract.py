@@ -98,6 +98,9 @@ class TaskContractTests(unittest.TestCase):
         forged_role = dict(validated, logical_role="INDEPENDENT_VERIFIER")
         with self.assertRaisesRegex(ContractError, "ASSIGNEE_ROLE_INVALID"):
             verification_plan(forged_role)
+        forged_workstream = dict(validated, workstream_id=["WS-01"])
+        with self.assertRaisesRegex(ContractError, "ASSIGNEE_ROLE_INVALID"):
+            verification_plan(forged_workstream)
         with self.assertRaisesRegex(ContractError, "VERIFIED_TASK_ENVELOPE_INVALID"):
             verification_plan({"task_id": "HQ-001", "logical_role": "RESEARCH_ANALYST"})
 
