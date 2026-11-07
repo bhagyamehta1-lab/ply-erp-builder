@@ -76,3 +76,26 @@ Run the focused test suite with:
 ```sh
 python -m unittest discover -s tests -p 'test_enterprise_hq_verification_receipt.py'
 ```
+
+
+## Deterministic lease envelope and recovery transition (validation only)
+
+`scripts/enterprise_hq_lease_contract.py` adds a pure contract for short-lived, task-bound lease envelopes:
+
+- binds each lease to an already validated parent-company task ID and proposal digest;
+- requires a syntactically valid logical owner identifier, while explicitly marking identity as NOT_AUTHENTICATED;
+- limits each lease window to 15 minutes and each attempt to the existing two-attempt ceiling;
+- requires timezone-aware issue, expiry, and evaluation timestamps;
+- distinguishes NOT_YET_VALID, ACTIVE, and EXPIRED using an explicit evaluation time, so tests are deterministic;
+- classifies an expired lease as retry-eligible only when no side effects are reported and the attempt ceiling is not reached;
+- validates a proposed successor only after prior expiry, with no reported side effects, a strictly incremented attempt, and no overlapping lease window.
+
+This is a validation contract only. It does not issue or persist leases, enforce unique lease IDs across processes, authenticate owners, provide distributed locking, execute tasks, renew leases, automatically retry work, or authorize dispatch. Recovery decisions always retain human approval, automatic retry is false, and execution authorization is false. A logical owner ID is an untrusted assertion, not a worker identity.
+
+Run the focused tests with:
+
+```sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_lease_contract.py'
+```
+
+The test suite uses fixed timestamps and the Python standard library; it requires no network, secrets, model provider, paid service, or external system.
