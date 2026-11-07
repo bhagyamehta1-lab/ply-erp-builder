@@ -17,3 +17,9 @@ jobs:
           node-version: 22
       - name: Run domain tests
         run: node --test src/*.test.mjs
+      - name: Set up Python for company observer tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run sanitized Enterprise-HQ observer tests
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer.py'
