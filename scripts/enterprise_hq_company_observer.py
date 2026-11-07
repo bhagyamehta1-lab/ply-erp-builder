@@ -6,10 +6,12 @@ import argparse
 import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 HQ_REPOSITORY = "bhagyamehta1-lab/Enterprise-HQ"
@@ -21,7 +23,23 @@ FILES = {
 }
 ALLOWED_PRIVATE_PATHS = frozenset(FILES.values())
 ALLOWED_WORKSTREAMS = {f"WS-{number:02d}" for number in range(1, 12)}
+WORKSTREAM_STATUSES = frozenset({
+    "NOT_STARTED", "PLANNED", "CONFIGURED", "SIMULATED", "GOVERNANCE_ONLY",
+    "ISOLATED_QA", "REAL_TRANSACTION", "SUSTAINED_PRODUCTION", "BLOCKED", "ACCEPTED",
+})
+READINESS_STATUS_ALLOWLIST = {
+    "company_operating_status": frozenset({"IN_DEVELOPMENT_NOT_CERTIFIED"}),
+    "legal_entity_status": frozenset({"NOT_VERIFIED_FROM_REPOSITORY"}),
+    "independent_ai_operations_status": frozenset({"NOT_CERTIFIED"}),
+    "continuous_24x7_status": frozenset({"NOT_CERTIFIED"}),
+}
+REQUIRED_SAFETY_BOOLEAN_FIELDS = frozenset({
+    "safe_hold", "execution_hold", "dispatch_enabled", "product_task_execution",
+    "builds_enabled", "releases_enabled", "deployments_enabled", "public_releases_enabled",
+    "production_migrations_enabled", "production_release_authorized",
+})
 MAX_PRIVATE_RECORD_BYTES = 512 * 1024
+STATUS_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 
 class ObserverError(RuntimeError):
@@ -64,6 +82,33 @@ def fetch_private_json(path: str, token: str) -> dict:
         raise ObserverError("PRIVATE_RECORD_PARSE_FAILED") from None
 
 
+def _validate_audit_envelope(audit: dict) -> None:
+    if (audit.get("schema_version") != "1.0.0"
+            or not isinstance(audit.get("enterprise_status"), str)
+            or not STATUS_PATTERN.fullmatch(audit["enterprise_status"])
+            or not isinstance(audit.get("safety"), dict)):
+        raise ObserverError("CEO_AUDIT_SCHEMA_INVALID")
+    timestamp = audit.get("timestamp")
+    if not isinstance(timestamp, str):
+        raise ObserverError("CEO_AUDIT_SCHEMA_INVALID")
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        raise ObserverError("CEO_AUDIT_SCHEMA_INVALID") from None
+    if parsed.tzinfo is None:
+        raise ObserverError("CEO_AUDIT_SCHEMA_INVALID")
+
+    safety = audit["safety"]
+    if any(type(safety.get(key)) is not bool for key in REQUIRED_SAFETY_BOOLEAN_FIELDS):
+        raise ObserverError("CEO_AUDIT_SAFETY_SCHEMA_INVALID")
+    for key in ("active_in_progress_task_count", "active_dispatch_task_count"):
+        value = safety.get(key)
+        if type(value) is not int or value < 0:
+            raise ObserverError("CEO_AUDIT_SAFETY_SCHEMA_INVALID")
+    if not isinstance(safety.get("task_scoped_build_authorizations"), dict):
+        raise ObserverError("CEO_AUDIT_SAFETY_SCHEMA_INVALID")
+
+
 def summarize(records: dict) -> dict:
     if not isinstance(records, dict) or set(records) != set(FILES):
         raise ObserverError("PRIVATE_RECORD_SET_INVALID")
@@ -89,13 +134,14 @@ def summarize(records: dict) -> dict:
             or first_project.get("name") != "PLY ERP"
             or first_project.get("repository") != "bhagyamehta1-lab/PLY_ERP"):
         raise ObserverError("PROJECT_BOUNDARY_CHECK_FAILED")
-    if (not isinstance(audit.get("safety"), dict)
-            or not isinstance(audit.get("timestamp"), str)
-            or not isinstance(audit.get("enterprise_status"), str)):
-        raise ObserverError("CEO_AUDIT_SCHEMA_INVALID")
-    if authority.get("scope") != "Enterprise-HQ parent company only":
+    _validate_audit_envelope(audit)
+    if (register.get("schema_version") != "1.0.0"
+            or authority.get("scope") != "Enterprise-HQ parent company only"):
         raise ObserverError("COMPANY_REGISTER_SCOPE_INVALID")
 
+    vocabulary = register.get("status_vocabulary")
+    if not isinstance(vocabulary, list) or set(vocabulary) != WORKSTREAM_STATUSES:
+        raise ObserverError("COMPANY_STATUS_VOCABULARY_INVALID")
     workstreams = register.get("workstreams", [])
     if not isinstance(workstreams, list) or len(workstreams) != len(ALLOWED_WORKSTREAMS):
         raise ObserverError("COMPANY_WORKSTREAM_COLLECTION_INVALID")
@@ -107,7 +153,7 @@ def summarize(records: dict) -> dict:
         workstream_id = row.get("workstream_id")
         status = row.get("status")
         if (not isinstance(workstream_id, str) or workstream_id not in ALLOWED_WORKSTREAMS
-                or not isinstance(status, str) or not status):
+                or not isinstance(status, str) or status not in WORKSTREAM_STATUSES):
             raise ObserverError("COMPANY_WORKSTREAM_ROW_INVALID")
         workstream_ids.add(workstream_id)
         statuses.append(status)
@@ -117,17 +163,10 @@ def summarize(records: dict) -> dict:
     readiness = identity.get("readiness", {})
     if not isinstance(readiness, dict):
         raise ObserverError("COMPANY_READINESS_SCHEMA_INVALID")
-    readiness_keys = (
-        "company_operating_status",
-        "legal_entity_status",
-        "independent_ai_operations_status",
-        "continuous_24x7_status",
-    )
-    readiness_statuses = {
-        key: readiness.get(key, "UNKNOWN")
-        if isinstance(readiness.get(key, "UNKNOWN"), str) else "UNKNOWN"
-        for key in readiness_keys
-    }
+    readiness_statuses = {}
+    for key, allowed_values in READINESS_STATUS_ALLOWLIST.items():
+        value = readiness.get(key)
+        readiness_statuses[key] = value if isinstance(value, str) and value in allowed_values else "UNKNOWN"
 
     return {
         "schema_version": "1.0.0",

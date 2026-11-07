@@ -38,6 +38,10 @@ class TaskContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             validate_task(task(task_kind=["INTERNAL_RESEARCH"]))
 
+    def test_rejects_malformed_task_id(self):
+        with self.assertRaisesRegex(ContractError, "TASK_ID_INVALID"):
+            validate_task(task(task_id="HQ-A-"))
+
     def test_rejects_product_workstream(self):
         with self.assertRaisesRegex(ContractError, "WORKSTREAM_NOT_ALLOWED"):
             validate_task(task(workstream_id="PLY-0001"))

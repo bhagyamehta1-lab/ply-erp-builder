@@ -28,7 +28,11 @@ jobs:
           python-version: "3.12"
           cache: false
       - name: Test aggregate observer
-        run: python -m unittest tests/test_enterprise_hq_company_observer.py
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer.py'
+      - name: Test deterministic task contract
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_task_contract.py'
+      - name: Test local durable proposal ledger
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_task_ledger.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

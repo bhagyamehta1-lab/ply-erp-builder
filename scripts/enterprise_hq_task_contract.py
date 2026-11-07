@@ -33,7 +33,7 @@ TASK_FIELDS = frozenset({
     "external_effects",
     "requires_human_approval",
 })
-TASK_ID_PATTERN = re.compile(r"^HQ-[A-Z0-9][A-Z0-9-]{1,31}$")
+TASK_ID_PATTERN = re.compile(r"^HQ-[A-Z0-9](?:[A-Z0-9-]{0,30}[A-Z0-9])?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MAX_TASKS_PER_BATCH = 8
 MAX_TASK_BYTES = 2048

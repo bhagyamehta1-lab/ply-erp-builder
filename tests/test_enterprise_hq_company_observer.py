@@ -7,6 +7,21 @@ import scripts.enterprise_hq_company_observer as observer
 from scripts.enterprise_hq_company_observer import ObserverError, summarize
 
 
+def audit_fixture():
+    safety = {key: False for key in observer.REQUIRED_SAFETY_BOOLEAN_FIELDS}
+    safety.update({
+        "active_in_progress_task_count": 0,
+        "active_dispatch_task_count": 0,
+        "task_scoped_build_authorizations": {},
+    })
+    return {
+        "schema_version": "1.0.0",
+        "timestamp": "2026-11-07T00:00:00Z",
+        "enterprise_status": "ACTIVE_OPERATIONS",
+        "safety": safety,
+    }
+
+
 def fixture():
     return {
         "identity": {
@@ -29,13 +44,11 @@ def fixture():
                 "continuous_24x7_status": "NOT_CERTIFIED",
             },
         },
-        "audit": {
-            "timestamp": "2026-11-07T00:00:00Z",
-            "enterprise_status": "ACTIVE_OPERATIONS",
-            "safety": {},
-        },
+        "audit": audit_fixture(),
         "register": {
+            "schema_version": "1.0.0",
             "authority": {"scope": "Enterprise-HQ parent company only"},
+            "status_vocabulary": sorted(observer.WORKSTREAM_STATUSES),
             "workstreams": [
                 {"workstream_id": f"WS-{i:02d}", "status": "PLANNED"}
                 for i in range(1, 12)
@@ -70,6 +83,19 @@ class CompanyObserverTests(unittest.TestCase):
         self.assertNotIn("company", report)
         self.assertEqual(report["privacy_status"]["private_file_contents"], "NOT_EMITTED")
 
+    def test_unknown_readiness_values_are_replaced_not_emitted(self):
+        records = fixture()
+        records["identity"]["readiness"]["company_operating_status"] = "PRIVATE_FREEFORM_TEXT"
+        report = summarize(records)
+        self.assertEqual(report["readiness"]["company_operating_status"], "UNKNOWN")
+        self.assertNotIn("PRIVATE_FREEFORM_TEXT", json.dumps(report))
+
+    def test_rejects_unknown_workstream_status(self):
+        records = fixture()
+        records["register"]["workstreams"][0]["status"] = "PRIVATE_FREEFORM_TEXT"
+        with self.assertRaisesRegex(ObserverError, "COMPANY_WORKSTREAM_ROW_INVALID"):
+            summarize(records)
+
     def test_rejects_project_boundary_drift(self):
         records = fixture()
         records["identity"]["project_portfolio"]["first_project"]["repository"] = "wrong/repo"
@@ -92,6 +118,18 @@ class CompanyObserverTests(unittest.TestCase):
         records = fixture()
         records["register"]["workstreams"][0]["workstream_id"] = "WS-02"
         with self.assertRaises(ObserverError):
+            summarize(records)
+
+    def test_rejects_malformed_audit_timestamp(self):
+        records = fixture()
+        records["audit"]["timestamp"] = "PRIVATE_TEXT"
+        with self.assertRaisesRegex(ObserverError, "CEO_AUDIT_SCHEMA_INVALID"):
+            summarize(records)
+
+    def test_rejects_incomplete_safety_schema_without_emitting_gate_values(self):
+        records = fixture()
+        records["audit"]["safety"].pop("dispatch_enabled")
+        with self.assertRaisesRegex(ObserverError, "CEO_AUDIT_SAFETY_SCHEMA_INVALID"):
             summarize(records)
 
     def test_private_path_allowlist_blocks_other_files(self):
