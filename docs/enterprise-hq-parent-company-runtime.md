@@ -83,3 +83,25 @@ Run the focused suite with:
 ```sh
 python -m unittest discover -s tests -p 'test_enterprise_hq_budgeted_task_ledger.py'
 ```
+
+
+## Persistent verification receipt ledger (untrusted claims only)
+
+\`scripts/enterprise_hq_verification_ledger.py\` adds durable storage for structurally valid verification receipt claims. It extends the unified local ledger stack and verifies the task, resource-budget, lease-proposal, and verification-receipt chains before each receipt append and after restart.
+
+- requires the exact task proposal to exist in the same SQLite database;
+- validates task ID, proposal digest, asserted proposer/reviewer separation, logical roles, verdict vocabulary, evidence-digest syntax, and timestamp using the existing receipt contract;
+- persists each receipt as \`UNAUTHENTICATED_CLAIM\` and appends a separate sequenced SHA-256 audit chain in the same transaction;
+- treats an identical receipt ID and payload as idempotent and rejects conflicting reuse;
+- caps receipt proposals at 256 and inherits the local ledger's 8 MiB database cap and owner-only file checks;
+- verifies receipt rows, task binding, audit-event count, sequence, previous hashes, and record hashes before accepting another append;
+- on restart, reports pending untrusted receipts but never resumes execution or retries work.
+
+A receipt remains an untrusted claim. Distinct caller-supplied logical IDs do not authenticate separate principals. Evidence is not retrieved or semantically checked. \`independent_verification_status\` remains \`NOT_ESTABLISHED\`, identity assurance remains \`NOT_AUTHENTICATED\`, and execution remains unauthorized. This ledger is local SQLite persistence, not a distributed verifier service.
+
+Run the focused suite with:
+
+\`\`\`sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_verification_ledger.py'
+\`\`\`
+

@@ -13,12 +13,12 @@ from collections.abc import Mapping
 
 from scripts.enterprise_hq_lease_contract import validate_lease
 from scripts.enterprise_hq_task_contract import ContractError, validate_task
+from scripts.enterprise_hq_budgeted_task_ledger import BudgetedTaskLedger
 from scripts.enterprise_hq_task_ledger import (
     MAX_LEDGER_TASKS,
     LedgerCorruptionError,
     LedgerError,
     TaskConflictError,
-    TaskLedger,
 )
 
 MAX_LEASE_PROPOSALS = MAX_LEDGER_TASKS
@@ -42,8 +42,8 @@ def _valid_timestamp(value: object) -> bool:
     return parsed.tzinfo is not None and parsed.utcoffset() is not None
 
 
-class LeaseProposalLedger(TaskLedger):
-    """TaskLedger extension that stores future first-attempt lease proposals only."""
+class LeaseProposalLedger(BudgetedTaskLedger):
+    """BudgetedTaskLedger extension that stores future first-attempt lease proposals only."""
 
     def __init__(self, database: str):
         super().__init__(database)
@@ -302,6 +302,10 @@ class LeaseProposalLedger(TaskLedger):
             "audit_event_count": verified["audit_event_count"],
             "lease_proposals_recovered": verified["lease_proposal_count"],
             "pending_lease_review": verified["lease_proposal_count"],
+            "budget_proposals_recovered": verified["budget_count"],
+            "pending_budget_review": verified["budget_count"],
+            "budget_audit_event_count": verified["budget_audit_event_count"],
+            "budget_enforcement_status": "NOT_ENFORCED",
             "lease_execution_resumed": False,
             "lease_issued": False,
             "automatic_retry": False,
