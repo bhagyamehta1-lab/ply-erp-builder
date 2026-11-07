@@ -244,10 +244,10 @@ class PrincipalContractTests(unittest.TestCase):
         with self.assertRaisesRegex(PrincipalContractError, "PRINCIPAL_SCHEMA_INVALID"):
             self.validate_worker(attestation, now, FakeVerifier())
 
-    def test_invalid_signature_length_is_rejected(self):
-        attestation, now = attestation_fixture(signature="A" * 86)
+    def test_malformed_signature_encoding_is_rejected(self):
+        attestation, now = attestation_fixture(signature="A" * 85)
         with self.assertRaisesRegex(
-            PrincipalContractError, "PRINCIPAL_SIGNATURE_LENGTH_INVALID"
+            PrincipalContractError, "PRINCIPAL_SIGNATURE_FORMAT_INVALID"
         ):
             self.validate_worker(attestation, now, FakeVerifier())
 
