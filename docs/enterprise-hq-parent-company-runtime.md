@@ -145,3 +145,41 @@ conformance boundary, not a production trust store or authenticated identity ser
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_source.py'
+
+
+## Persistent principal policy-version history (local, untrusted)
+
+`scripts/enterprise_hq_principal_policy_ledger.py` adds append-only policy history
+to the task, lease, receipt, recovery and principal nonce ledgers.
+
+- stores source ID/version/revision, issuer/key ID, policy ID, policy digest,
+  key fingerprint, status, revocation timestamp and audit records only;
+- stores no key material, signatures, tokens, raw attestations, full policy payloads
+  or source credentials;
+- rejects source-revision rollback, revision gaps, same-revision digest conflicts,
+  reused source versions, key-fingerprint changes under the same key ID, and
+  policy-ID changes under the same key ID;
+- records DISABLED and REVOKED snapshots before the structural policy matcher runs,
+  so a later snapshot cannot silently roll a revoked key back to ACTIVE;
+- allows DISABLED-to-ACTIVE only through the next contiguous revision;
+- treats REVOKED as terminal for that source/issuer/key ID; key rotation requires a
+  new key ID;
+- writes a separate sequenced SHA-256 audit chain and verifies inherited chains
+  before append and after restart;
+- serializes concurrent writers with SQLite `BEGIN IMMEDIATE`;
+- caps history at 1,024 snapshots and fails closed at capacity;
+- never authenticates a policy source, loads keys, authorizes execution or resumes work.
+
+The source revision is supplied by the injected adapter and is not independently
+authenticated by this local ledger. A caller-supplied or compromised source can
+still present a malicious higher revision. The local hash chain detects inconsistent
+records but is not a keyed tamper-proof seal or a distributed anti-rollback service.
+Production source authentication, trusted key custody, revocation distribution
+and cross-host history remain outstanding.
+
+Run the focused suites with:
+
+```bash
+python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_ledger.py'
+python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_source.py'
+```

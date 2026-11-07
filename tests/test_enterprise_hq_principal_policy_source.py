@@ -68,6 +68,7 @@ def snapshot_fixture(policy=None, **overrides):
     value = {
         "source_id": "synthetic-policy-source",
         "source_version": "v1",
+        "source_revision": 1,
         "source_assurance": SOURCE_ASSURANCE,
         "read_only": True,
         "retrieved_at": NOW.isoformat(),
@@ -91,6 +92,21 @@ class FakePolicySource:
         return self.snapshot
 
 
+class FakePolicyHistory:
+    def __init__(self):
+        self.calls = []
+
+    def record_policy_snapshot(self, snapshot, policy, *, expected_issuer, expected_key_id, now):
+        self.calls.append({
+            "snapshot": dict(snapshot),
+            "policy": dict(policy),
+            "expected_issuer": expected_issuer,
+            "expected_key_id": expected_key_id,
+            "now": now,
+        })
+        return {"status": "PINNED_UNTRUSTED_SNAPSHOT", "execution_authorized": False}
+
+
 class FakeSignatureVerifier:
     def __init__(self, result=True, error=None):
         self.result = result
@@ -110,13 +126,15 @@ class PrincipalPolicySourceTests(unittest.TestCase):
         self.snapshot = snapshot_fixture(self.policy)
         self.source = FakePolicySource(self.snapshot)
         self.signature = FakeSignatureVerifier()
+        self.history = FakePolicyHistory()
         self.payload = attestation_payload()
 
-    def build(self, source=None, signature=None, now_provider=lambda: NOW):
+    def build(self, source=None, signature=None, now_provider=lambda: NOW, history=None):
         return PolicyBoundPrincipalVerifier(
             self.source if source is None else source,
             self.signature if signature is None else signature,
             now_provider=now_provider,
+            policy_ledger=self.history if history is None else history,
         )
 
     def verify(self, verifier=None, payload=None, signature=b"x" * 64):
@@ -132,7 +150,9 @@ class PrincipalPolicySourceTests(unittest.TestCase):
     def test_policy_is_checked_before_signature_verifier(self):
         self.assertTrue(self.verify())
         self.assertEqual(len(self.source.calls), 1)
+        self.assertEqual(len(self.history.calls), 1)
         self.assertEqual(len(self.signature.calls), 1)
+        self.assertEqual(self.signature.calls[0]["policy_revision"], 1)
 
     def test_missing_policy_source_fails_closed(self):
         verifier = PolicyBoundPrincipalVerifier(None, self.signature, now_provider=lambda: NOW)
@@ -142,6 +162,13 @@ class PrincipalPolicySourceTests(unittest.TestCase):
     def test_missing_signature_verifier_fails_closed(self):
         verifier = PolicyBoundPrincipalVerifier(self.source, None, now_provider=lambda: NOW)
         with self.assertRaisesRegex(PrincipalPolicySourceError, "PRINCIPAL_SIGNATURE_VERIFIER_UNAVAILABLE"):
+            self.verify(verifier)
+
+    def test_missing_policy_history_ledger_fails_closed(self):
+        verifier = PolicyBoundPrincipalVerifier(
+            self.source, self.signature, now_provider=lambda: NOW, policy_ledger=None
+        )
+        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_HISTORY_LEDGER_UNAVAILABLE"):
             self.verify(verifier)
 
     def test_invalid_policy_source_interface_rejected(self):
@@ -186,6 +213,30 @@ class PrincipalPolicySourceTests(unittest.TestCase):
         source = FakePolicySource(dict(self.snapshot, source_version=" "))
         with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_SOURCE_VERSION_INVALID"):
             self.verify(self.build(source=source))
+
+    def test_source_revision_must_be_positive_integer(self):
+        for revision in (0, -1, True, "2", 1.0):
+            source = FakePolicySource(dict(self.snapshot, source_revision=revision))
+            with self.subTest(revision=revision):
+                with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_SOURCE_REVISION_INVALID"):
+                    self.verify(self.build(source=source))
+
+    def test_revoked_policy_is_recorded_before_policy_rejection(self):
+        revoked = policy_fixture(status="REVOKED", revoked_at=NOW.isoformat())
+        source = FakePolicySource(snapshot_fixture(revoked))
+        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_REVOKED"):
+            self.verify(self.build(source=source))
+        self.assertEqual(len(self.history.calls), 1)
+        self.assertEqual(self.history.calls[0]["policy"]["status"], "REVOKED")
+
+    def test_policy_history_error_is_sanitized(self):
+        class BrokenHistory:
+            def record_policy_snapshot(self, *args, **kwargs):
+                raise RuntimeError("private database detail")
+        with self.assertRaisesRegex(PrincipalPolicySourceError, "TRUST_POLICY_HISTORY_LEDGER_ERROR") as ctx:
+            self.verify(self.build(history=BrokenHistory()))
+        self.assertNotIn("private database detail", str(ctx.exception))
+
 
     def test_retrieval_timestamp_must_be_timezone_aware(self):
         source = FakePolicySource(dict(self.snapshot, retrieved_at="2026-11-08T00:00:00"))

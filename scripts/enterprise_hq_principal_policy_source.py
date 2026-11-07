@@ -18,10 +18,12 @@ from scripts.enterprise_hq_principal_trust_policy import (
     PrincipalTrustPolicyError,
     evaluate_principal_trust_policy,
 )
+from scripts.enterprise_hq_principal_policy_ledger import PrincipalPolicyLedgerError
 
 SOURCE_FIELDS = frozenset({
     "source_id",
     "source_version",
+    "source_revision",
     "source_assurance",
     "read_only",
     "retrieved_at",
@@ -64,6 +66,7 @@ class PolicyBoundSignatureVerifier(Protocol):
         policy_digest: str,
         policy_id: str,
         policy_version: str,
+        policy_revision: int,
         policy_source_id: str,
     ) -> bool:
         """Verify the signature and ensure the actual key matches the supplied pin."""
@@ -114,10 +117,12 @@ class PolicyBoundPrincipalVerifier:
         signature_verifier: PolicyBoundSignatureVerifier | None,
         *,
         now_provider,
+        policy_ledger=None,
     ) -> None:
         self.policy_source = policy_source
         self.signature_verifier = signature_verifier
         self.now_provider = now_provider
+        self.policy_ledger = policy_ledger
 
     def verify(
         self,
@@ -140,6 +145,11 @@ class PolicyBoundPrincipalVerifier:
         verify_signature = getattr(self.signature_verifier, "verify", None)
         if not callable(verify_signature):
             raise PrincipalPolicySourceError("PRINCIPAL_SIGNATURE_VERIFIER_INTERFACE_INVALID")
+        if self.policy_ledger is None:
+            raise PrincipalPolicySourceError("TRUST_POLICY_HISTORY_LEDGER_UNAVAILABLE")
+        record_policy_snapshot = getattr(self.policy_ledger, "record_policy_snapshot", None)
+        if not callable(record_policy_snapshot):
+            raise PrincipalPolicySourceError("TRUST_POLICY_HISTORY_LEDGER_INTERFACE_INVALID")
         if not callable(self.now_provider):
             raise PrincipalPolicySourceError("TRUST_POLICY_CLOCK_UNAVAILABLE")
 
@@ -202,6 +212,9 @@ class PolicyBoundPrincipalVerifier:
             raise PrincipalPolicySourceError("TRUST_POLICY_SOURCE_ID_INVALID")
         if not isinstance(source_version, str) or not IDENTIFIER.fullmatch(source_version):
             raise PrincipalPolicySourceError("TRUST_POLICY_SOURCE_VERSION_INVALID")
+        source_revision = snapshot.get("source_revision")
+        if type(source_revision) is not int or source_revision < 1:
+            raise PrincipalPolicySourceError("TRUST_POLICY_SOURCE_REVISION_INVALID")
         if snapshot.get("source_assurance") != SOURCE_ASSURANCE:
             raise PrincipalPolicySourceError("TRUST_POLICY_SOURCE_NOT_AUTHENTICATED")
         if snapshot.get("read_only") is not True:
@@ -227,6 +240,19 @@ class PolicyBoundPrincipalVerifier:
             raise PrincipalPolicySourceError("TRUST_POLICY_SOURCE_DIGEST_MISMATCH")
 
         try:
+            record_policy_snapshot(
+                snapshot,
+                policy,
+                expected_issuer=issuer,
+                expected_key_id=key_id,
+                now=now,
+            )
+        except PrincipalPolicyLedgerError as exc:
+            raise PrincipalPolicySourceError(str(exc)) from None
+        except Exception:
+            raise PrincipalPolicySourceError("TRUST_POLICY_HISTORY_LEDGER_ERROR") from None
+
+        try:
             match = evaluate_principal_trust_policy(attestation, policy, now=now)
         except PrincipalTrustPolicyError as exc:
             code = str(exc)
@@ -244,6 +270,7 @@ class PolicyBoundPrincipalVerifier:
                 policy_digest=match["policy_digest"],
                 policy_id=match["policy_id"],
                 policy_version=source_version,
+                policy_revision=source_revision,
                 policy_source_id=source_id,
             )
         except Exception:
