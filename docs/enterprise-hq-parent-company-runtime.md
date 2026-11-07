@@ -64,3 +64,15 @@ python -m unittest discover -s tests -p 'test_enterprise_hq_task_ledger.py'
 ```
 
 All suites are pure local tests and require no network, secrets, provider, paid service, or external system.
+
+## Verification receipt envelope (structural only)
+
+`scripts/enterprise_hq_verification_receipt.py` validates a proposed verification receipt against the exact task ID and canonical proposal digest. It requires the asserted proposer and verifier identifiers to differ, binds the proposer role to the task contract, requires the `INDEPENDENT_VERIFIER` logical role, restricts verdict vocabulary, checks a SHA-256 evidence-digest format, validates a timezone-aware review timestamp, and caps the receipt at 1 KiB.
+
+The validator deliberately labels its result `STRUCTURE_VALID_ONLY`. Logical identifiers are caller-supplied and are not authenticated; the evidence bytes are not inspected; semantic verification is not performed; receipts are not persisted; and execution authorization is always false. This is a receipt-envelope contract, not an independent verifier or an autonomous agent.
+
+Run the focused test suite with:
+
+```sh
+python -m unittest discover -s tests -p 'test_enterprise_hq_verification_receipt.py'
+```
