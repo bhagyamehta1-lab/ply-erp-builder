@@ -110,7 +110,7 @@ class CrossLedgerBackupSetInventory(LedgerBackupInventory):
         }
 
     @staticmethod
-    def _result(row, *, created: bool, already_present: bool) -> dict:
+    def _backup_set_result(row, *, created: bool, already_present: bool) -> dict:
         return {
             "status": "BACKUP_SET_RECONCILED",
             "backup_set_id": row["backup_set_id"],
@@ -245,7 +245,7 @@ class CrossLedgerBackupSetInventory(LedgerBackupInventory):
                     raise BackupSetReconciliationError(
                         "BACKUP_SET_GENERATION_CONTENT_CONFLICT"
                     )
-                return self._result(
+                return self._backup_set_result(
                     existing, created=False, already_present=True
                 )
 
@@ -303,7 +303,7 @@ class CrossLedgerBackupSetInventory(LedgerBackupInventory):
                 "SELECT * FROM ledger_backup_sets WHERE backup_set_id = ?",
                 (backup_set_id,),
             ).fetchone()
-            return self._result(saved, created=True, already_present=False)
+            return self._backup_set_result(saved, created=True, already_present=False)
 
     def verify(self) -> dict:
         """Verify inherited ledgers plus complete cross-ledger set lineage."""

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.enterprise_hq_backup_inventory import LedgerBackupInventory
+from scripts.enterprise_hq_backup_inventory import BackupInventoryCorruptionError
 from scripts.enterprise_hq_backup_set_reconciliation import (
     BackupSetReconciliationCorruptionError,
     BackupSetReconciliationError,
@@ -156,9 +156,6 @@ class CrossLedgerBackupSetInventoryTests(unittest.TestCase):
             )
 
     def test_rejects_expired_member(self):
-        self._record_pair(
-            retain_until=self.now + timedelta(days=1)
-        ) if False else None
         self._record(
             "EvidenceVerificationLedger",
             retain_until=self.now + timedelta(days=1),
@@ -210,7 +207,7 @@ class CrossLedgerBackupSetInventoryTests(unittest.TestCase):
         self.assertTrue(second["already_present"])
         self.assertEqual(first["backup_set_id"], second["backup_set_id"])
 
-    def test_changed_members_conflict_with_existing_generation(self):
+    def test_inventory_corruption_blocks_set_reconciliation(self):
         types = self._record_pair()
         self.inventory.record_backup_set(types, 1, now=self.now)
         self.inventory._connection.execute(
@@ -218,7 +215,7 @@ class CrossLedgerBackupSetInventoryTests(unittest.TestCase):
             "WHERE ledger_type = ?",
             ("0" * 64, "TaskLedger"),
         )
-        with self.assertRaises(Exception):
+        with self.assertRaises(BackupInventoryCorruptionError):
             self.inventory.record_backup_set(types, 1, now=self.now)
 
     def test_restart_verifies_backup_set_history(self):
