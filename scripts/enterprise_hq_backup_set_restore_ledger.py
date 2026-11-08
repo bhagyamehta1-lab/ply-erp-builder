@@ -154,7 +154,10 @@ class BackupSetRestoreReceiptLedger(CrossLedgerBackupSetInventory):
         self, source_snapshot: Mapping, restored_snapshot: Mapping, *, now=None
     ) -> dict:
         """Verify snapshots and atomically append a bounded metadata-only receipt."""
-        current = _now_utc(now)
+        try:
+            current = _now_utc(now)
+        except BackupInventoryError as exc:
+            raise BackupSetRestoreReceiptError(str(exc)) from None
         verified_at = current.isoformat().replace("+00:00", "Z")
 
         with self._transaction():

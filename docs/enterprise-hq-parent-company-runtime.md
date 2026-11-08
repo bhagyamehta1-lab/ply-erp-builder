@@ -488,3 +488,8 @@ certification.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_restore_ledger.py'`
+
+The specialized backup-set restore verifier also accepts the persistent
+`BackupSetRestoreReceiptLedger` subclass, whose integrity snapshots include
+the same cross-ledger backup-set audit chain plus its append-only restoration
+receipt history. Complete snapshot equivalence still applies to every chain.

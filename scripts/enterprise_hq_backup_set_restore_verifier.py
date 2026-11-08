@@ -18,7 +18,10 @@ from scripts.enterprise_hq_ledger_restore_verifier import (
 )
 
 MAX_BACKUP_SET_RESTORE_RECORDS = 128
-_BACKUP_SET_LEDGER_TYPE = "CrossLedgerBackupSetInventory"
+_BACKUP_SET_LEDGER_TYPES = frozenset({
+    "CrossLedgerBackupSetInventory",
+    "BackupSetRestoreReceiptLedger",
+})
 _BACKUP_SET_AUDIT_TABLE = "ledger_backup_set_audit_events"
 
 
@@ -34,7 +37,7 @@ def _checkpoint_metadata(snapshot: Mapping) -> dict:
             "BACKUP_SET_RESTORE_SNAPSHOT_INVALID"
         ) from None
 
-    if snapshot.get("ledger_type") != _BACKUP_SET_LEDGER_TYPE:
+    if snapshot.get("ledger_type") not in _BACKUP_SET_LEDGER_TYPES:
         raise BackupSetRestoreEquivalenceError(
             "BACKUP_SET_RESTORE_LEDGER_TYPE_INVALID"
         )
