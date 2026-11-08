@@ -842,3 +842,36 @@ disaster-recovery service. The lineage digest is unkeyed integrity metadata.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability.py'`
+
+
+## Persistent observer freshness backup availability history
+
+`scripts/enterprise_hq_observer_freshness_backup_availability_ledger.py`
+records bounded history for read-only availability checks.
+
+- accepts only the exact aggregate result from the availability verifier;
+- distinguishes AVAILABLE, MISSING, UNAVAILABLE, INVALID, MISMATCH, and
+  UNKNOWN observations;
+- records only opaque backup identity, lineage sequence and digest, status,
+  and UTC observation time; filesystem paths and raw backup payloads are
+  rejected;
+- derives an idempotent observation identifier from canonical metadata and
+  recording time;
+- preserves availability transitions as separate append-only records;
+- verifies sequence continuity, monotonic timestamps, observation identity,
+  record hashes, schema, and append-only triggers before every append;
+- provides read-only latest-observation lookup and restart recovery;
+- enforces owner-only database permissions, a 512-observation limit, and a
+  one-MiB SQLite database bound;
+- keeps execution authorization, automatic dispatch, and automatic retry
+  false.
+
+This is a local audit-history primitive. It does not schedule file scans,
+persist filesystem paths, provide off-host durability, or authorize restoration.
+The ledger is exercised only with temporary test databases; GitHub-hosted
+runner storage remains ephemeral and no shared durable volume is configured.
+The hash chain is unkeyed integrity metadata, not authenticated provenance.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability_ledger.py'`
