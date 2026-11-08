@@ -93,6 +93,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup.py'
       - name: Test persistent observer freshness backup lineage receipts
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_receipts.py'
+      - name: Test read-only observer freshness backup availability
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

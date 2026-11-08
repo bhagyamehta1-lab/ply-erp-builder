@@ -483,6 +483,40 @@ class ObserverFreshnessBackupReceiptLedger:
             "automatic_retry": False,
         }
 
+
+    def get_backup_receipt(self, backup_id: str) -> dict:
+        """Return one verified aggregate lineage record without filesystem paths."""
+        if not isinstance(backup_id, str) or not _BACKUP_ID.fullmatch(backup_id):
+            _fail("OBSERVER_FRESHNESS_BACKUP_RECEIPT_ID_INVALID")
+        self.verify()
+        row = self._connection.execute(
+            f'SELECT * FROM "{_TABLE}" WHERE backup_id = ?',
+            (backup_id,),
+        ).fetchone()
+        if row is None:
+            return {
+                "status": "OBSERVER_FRESHNESS_BACKUP_RECEIPT_NOT_FOUND",
+                "backup_id": backup_id,
+                "execution_authorized": False,
+                "automatic_dispatch": False,
+                "automatic_retry": False,
+            }
+        return {
+            "status": "OBSERVER_FRESHNESS_BACKUP_RECEIPT_FOUND",
+            "backup_count": row["sequence"],
+            "backup_id": row["backup_id"],
+            "file_sha256": row["file_sha256"],
+            "source_receipt_count": row["receipt_count"],
+            "source_status_counts": json.loads(row["status_counts_json"]),
+            "last_source_sequence": row["last_sequence"],
+            "source_chain_head_digest": row["chain_head_digest"],
+            "predecessor_backup_id": row["predecessor_backup_id"],
+            "record_hash": row["record_hash"],
+            "execution_authorized": False,
+            "automatic_dispatch": False,
+            "automatic_retry": False,
+        }
+
     def recover_after_restart(self) -> dict:
         """Perform read-only integrity verification after reopening the ledger."""
         summary = self.verify()

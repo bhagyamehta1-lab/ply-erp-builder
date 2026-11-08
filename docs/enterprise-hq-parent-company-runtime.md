@@ -810,3 +810,35 @@ storage remains ephemeral, and no shared durable volume is configured.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_receipts.py'`
+
+
+## Read-only observer freshness backup availability verification
+
+`scripts/enterprise_hq_observer_freshness_backup_availability.py` verifies
+whether a backup recorded in the freshness-backup lineage ledger is still
+available as a valid local file.
+
+- verifies the complete append-only backup-lineage ledger before inspecting a
+  caller-supplied path;
+- distinguishes missing, inaccessible, invalid, mismatched, and available
+  backup files without returning the path;
+- checks regular-file type, symlink boundaries, owner-only permissions, and
+  the one-MiB database bound;
+- verifies SQLite integrity, the exact freshness-ledger schema, append-only
+  triggers, every receipt, and the internal receipt hash chain through a
+  read-only SQLite connection;
+- compares the file digest and aggregate source-ledger summary with the
+  previously recorded backup-lineage receipt;
+- checks file identity, size, and modification time before and after
+  verification to detect replacement during the read;
+- emits only opaque backup identity, aggregate counts, and digests;
+- never changes file permissions, creates or restores files, writes ledger
+  records, deletes artifacts, retries work, or authorizes execution.
+
+This is a local read-only availability check. It does not prove off-host
+durability, authenticate the original backup producer, or provide a production
+disaster-recovery service. The lineage digest is unkeyed integrity metadata.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability.py'`

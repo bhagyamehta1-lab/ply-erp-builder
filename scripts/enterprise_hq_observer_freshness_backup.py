@@ -395,9 +395,66 @@ def restore_verified_backup(backup_path, restore_path) -> dict:
         raise
 
 
+
+def verify_backup_file(backup_path) -> dict:
+    """Verify one existing backup using read-only SQLite and file access.
+
+    This validates the backup's internal schema and receipt chain without
+    changing file permissions, writing SQLite metadata, or requiring the
+    original source ledger.
+    """
+    path = _existing_database_path(backup_path)
+    try:
+        before = path.stat()
+        resolved = path.resolve(strict=True)
+        uri = "file:" + quote(str(resolved), safe="/") + "?mode=ro"
+        connection = sqlite3.connect(uri, uri=True, timeout=5.0)
+        connection.row_factory = sqlite3.Row
+        ledger = object.__new__(ObserverFreshnessLedger)
+        ledger._path = path
+        ledger._connection = connection
+        try:
+            summary = _extract_summary(ledger.verify())
+        finally:
+            connection.close()
+
+        after = path.stat()
+        identity_before = (
+            before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
+        )
+        identity_after = (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
+        )
+        if path.is_symlink() or identity_before != identity_after:
+            _fail("OBSERVER_FRESHNESS_BACKUP_CHANGED_DURING_VERIFY")
+
+        file_digest = _file_digest(path)
+        final = path.stat()
+        identity_final = (
+            final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns
+        )
+        if path.is_symlink() or identity_before != identity_final:
+            _fail("OBSERVER_FRESHNESS_BACKUP_CHANGED_DURING_VERIFY")
+
+        return {
+            "status": "OBSERVER_FRESHNESS_BACKUP_FILE_VERIFIED",
+            "file_sha256": file_digest,
+            **summary,
+            "integrity_verified": True,
+            "execution_authorized": False,
+            "automatic_dispatch": False,
+            "automatic_retry": False,
+        }
+    except ObserverFreshnessBackupError:
+        raise
+    except (OSError, sqlite3.Error, ValueError):
+        _fail("OBSERVER_FRESHNESS_BACKUP_FILE_VERIFICATION_FAILED")
+
+
 __all__ = [
     "ObserverFreshnessBackupError",
     "create_verified_backup",
     "restore_verified_backup",
     "verify_backup_equivalence",
+    "verify_backup_file",
 ]
