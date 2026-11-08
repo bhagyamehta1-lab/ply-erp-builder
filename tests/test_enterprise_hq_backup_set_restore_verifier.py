@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -35,14 +36,14 @@ class BackupSetRestoreEquivalenceTests(unittest.TestCase):
         )
         self.ledger_types = ["EvidenceVerificationLedger", "TaskLedger"]
         self._populate(self.source, generations=1)
-        restored_connection = sqlite3.connect(self.root / "restored.sqlite3")
+        restored_path = self.root / "restored.sqlite3"
+        restored_connection = sqlite3.connect(restored_path)
         try:
             self.source._connection.backup(restored_connection)
         finally:
             restored_connection.close()
-        self.restored = CrossLedgerBackupSetInventory(
-            str(self.root / "restored.sqlite3")
-        )
+        os.chmod(restored_path, 0o600)
+        self.restored = CrossLedgerBackupSetInventory(str(restored_path))
         self.source_snapshot = build_ledger_integrity_snapshot(self.source)
         self.restored_snapshot = build_ledger_integrity_snapshot(self.restored)
         self.assertEqual(self.source_snapshot, self.restored_snapshot)
