@@ -143,6 +143,8 @@ def _validate_workflow(text):
         not item.startswith("test_enterprise_hq_") or not item.endswith(".py") for item in tests
     ):
         _fail("OBSERVER_POLICY_TEST_COMMANDS_INVALID")
+    if "test_enterprise_hq_public_workflow_boundary.py" not in tests:
+        _fail("OBSERVER_POLICY_WORKFLOW_BOUNDARY_TEST_MISSING")
     run_lines = [
         line.split("run:", 1)[1].strip()
         for line in text.splitlines() if re.match(r"^[ \t]+run:", line)

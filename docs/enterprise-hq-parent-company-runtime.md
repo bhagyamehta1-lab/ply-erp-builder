@@ -626,3 +626,33 @@ data or authenticate GitHub runner isolation.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_artifact.py'`
+
+
+## Public workflow separation inventory
+
+scripts/enterprise_hq_public_workflow_boundary.py performs a read-only inventory of
+direct YAML workflow files in the public repository workflow directory.
+
+- requires exactly one company observer workflow and validates it with the existing
+  observer policy contract;
+- classifies other public workflow definitions using bounded static indicators for
+  private-source access, private-governance references, product execution/dispatch,
+  privileged capabilities, and overlap with the company observer boundary;
+- emits aggregate counts and signal counts only; workflow names and source text are
+  never included in its report;
+- marks repository-wide status as REVIEW_REQUIRED when any legacy restricted
+  workflow is present, while separately reporting whether the dedicated company
+  observer remains isolated;
+- rejects symlinks, non-regular files, invalid UTF-8, oversized files, more than 64
+  workflow definitions, and missing or invalid observer policy;
+- performs no network access, private metadata fetch, workflow execution, or writes.
+
+This is a conservative static inventory, not a YAML execution engine or a complete
+security proof. Text indicators can produce false positives or miss indirect
+capabilities. REVIEW_REQUIRED is intentionally non-blocking for the company-only
+test suite: it records existing repository-wide risks without changing or triggering
+those workflows. No legacy workflow is modified by this audit.
+
+Run the focused suite with:
+
+python -m unittest discover -s tests -p 'test_enterprise_hq_public_workflow_boundary.py'

@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+import ast
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.enterprise_hq_public_workflow_boundary import (
+    WorkflowBoundaryAuditError,
+    audit_workflow_directory,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+OBSERVER_WORKFLOW = (
+    WORKFLOW_DIR / "enterprise-hq-parent-company-observer.yml"
+).read_text(encoding="utf-8")
+OBSERVER_SOURCE = (
+    ROOT / "scripts" / "enterprise_hq_company_observer.py"
+).read_text(encoding="utf-8")
+SCANNER_SOURCE = (
+    ROOT / "scripts" / "enterprise_hq_public_workflow_boundary.py"
+).read_text(encoding="utf-8")
+
+
+class PublicWorkflowBoundaryTests(unittest.TestCase):
+    def fixture(self, extra=None):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        (root / "enterprise-hq-parent-company-observer.yml").write_text(
+            OBSERVER_WORKFLOW, encoding="utf-8"
+        )
+        for name, content in (extra or {}).items():
+            target = root / name
+            if isinstance(content, bytes):
+                target.write_bytes(content)
+            else:
+                target.write_text(content, encoding="utf-8")
+        return root
+
+    def audit(self, root, observer=OBSERVER_SOURCE):
+        return audit_workflow_directory(root, observer)
+
+    def test_current_repository_inventory_is_bounded_and_reports_legacy_review(self):
+        result = self.audit(WORKFLOW_DIR)
+        self.assertEqual(result["workflow_count"], 9)
+        self.assertEqual(result["company_observer_count"], 1)
+        self.assertGreaterEqual(result["restricted_legacy_workflow_count"], 1)
+        self.assertGreaterEqual(result["general_ci_workflow_count"], 1)
+        self.assertEqual(result["repository_wide_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["status"], "COMPANY_OBSERVER_ISOLATION_VERIFIED")
+
+    def test_summary_does_not_emit_workflow_names(self):
+        result = self.audit(WORKFLOW_DIR)
+        rendered = str(result)
+        self.assertNotIn("public_worker_executor.yml", rendered)
+        self.assertNotIn("private-project-verification.yml", rendered)
+        self.assertFalse(result["workflow_names_emitted"])
+
+    def test_summary_keeps_all_authority_flags_false(self):
+        result = self.audit(WORKFLOW_DIR)
+        self.assertFalse(result["execution_authorized"])
+        self.assertFalse(result["private_data_read"])
+        self.assertFalse(result["workflow_commands_executed"])
+
+    def test_rejects_inventory_without_company_observer(self):
+        root = self.fixture({"general.yml": "name: General\n"})
+        (root / "enterprise-hq-parent-company-observer.yml").unlink()
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root)
+
+    def test_rejects_empty_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(WorkflowBoundaryAuditError):
+                self.audit(Path(temporary))
+
+    def test_classifies_private_source_workflow(self):
+        root = self.fixture({"legacy.yml": "PRIVATE_PAT: secrets.PRIVATE_PAT\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_legacy_workflow_count"], 1)
+        self.assertEqual(result["restricted_signal_counts"]["private_source"], 1)
+
+    def test_classifies_private_governance_reference(self):
+        root = self.fixture({"legacy.yml": "path: state/ceo_command_audit.json\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["private_governance"], 1)
+
+    def test_classifies_product_execution_reference(self):
+        root = self.fixture({"legacy.yml": "mode: execute_task\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["product_execution"], 1)
+
+    def test_classifies_repository_dispatch_reference(self):
+        root = self.fixture({"legacy.yml": "repository_dispatch:\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["product_execution"], 1)
+
+    def test_classifies_privileged_capability(self):
+        root = self.fixture({"legacy.yml": "permissions:\n  models: read\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_counts_multiple_restriction_signals_without_exposing_content(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "PRIVATE_PAT: secrets.PRIVATE_PAT\n"
+                "path: state/ceo_command_audit.json\n"
+                "mode: execute_task\n"
+                "  models: read\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_legacy_workflow_count"], 1)
+        self.assertEqual(result["restricted_signal_counts"]["private_source"], 1)
+        self.assertEqual(result["restricted_signal_counts"]["private_governance"], 1)
+        self.assertEqual(result["restricted_signal_counts"]["product_execution"], 1)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+        self.assertNotIn("legacy.yml", str(result))
+
+    def test_classifies_unrecognized_workflow_as_general_ci(self):
+        root = self.fixture({"general.yml": "name: Documentation lint\n"})
+        result = self.audit(root)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+        self.assertEqual(result["restricted_legacy_workflow_count"], 0)
+        self.assertEqual(
+            result["repository_wide_status"], "NO_RESTRICTED_WORKFLOWS_DETECTED"
+        )
+
+    def test_ignores_nested_non_workflow_directories(self):
+        root = self.fixture()
+        nested = root / "nested"
+        nested.mkdir()
+        (nested / "hidden.yml").write_text(
+            "execute_task: true\n", encoding="utf-8"
+        )
+        result = self.audit(root)
+        self.assertEqual(result["workflow_count"], 1)
+
+    def test_rejects_invalid_utf8_workflow(self):
+        root = self.fixture({"legacy.yml": b"\xff\xfe"})
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root)
+
+    def test_rejects_oversized_workflow(self):
+        root = self.fixture({"legacy.yml": "x" * (64 * 1024 + 1)})
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root)
+
+    def test_rejects_symlink_workflow(self):
+        root = self.fixture()
+        target = root / "target.yml"
+        target.write_text("name: target\n", encoding="utf-8")
+        (root / "linked.yml").symlink_to(target)
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root)
+
+    def test_rejects_more_than_64_workflow_files(self):
+        extras = {f"extra-{index:02d}.yml": "name: Extra\n" for index in range(64)}
+        root = self.fixture(extras)
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root)
+
+    def test_rejects_observer_policy_mutation(self):
+        root = self.fixture()
+        changed = OBSERVER_SOURCE.replace(
+            "state/company_completion_register.json",
+            "state/ceo_command_audit.json",
+            1,
+        )
+        with self.assertRaises(WorkflowBoundaryAuditError):
+            self.audit(root, changed)
+
+    def test_rejects_root_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            actual = base / "actual"
+            actual.mkdir()
+            link = base / "link"
+            link.symlink_to(actual, target_is_directory=True)
+            with self.assertRaises(WorkflowBoundaryAuditError):
+                self.audit(link)
+
+    def test_rejects_non_directory_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            file_path = Path(temporary) / "not-a-directory"
+            file_path.write_text("x", encoding="utf-8")
+            with self.assertRaises(WorkflowBoundaryAuditError):
+                self.audit(file_path)
+
+    def test_scanner_has_no_network_or_process_execution_imports(self):
+        tree = ast.parse(SCANNER_SOURCE)
+        imports = set()
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imports.add(node.module or "")
+        self.assertFalse(any(
+            name.startswith(("urllib", "http", "subprocess", "socket"))
+            for name in imports
+        ))
+        self.assertFalse(any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"eval", "exec", "compile", "__import__"}
+            for node in ast.walk(tree)
+        ))
+
+
+if __name__ == "__main__":
+    unittest.main()
