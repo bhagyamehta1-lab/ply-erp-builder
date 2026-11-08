@@ -429,3 +429,29 @@ the same transactionally frozen point in time. The snapshots remain
 `LOCAL_SQLITE_UNSEALED`; hashes are unkeyed and do not authenticate their origin.
 No artifact is created, read, uploaded, or deleted. No task is resumed or
 authorized by this component.
+
+
+## Cross-ledger backup-set restoration equivalence
+
+`scripts/enterprise_hq_backup_set_restore_verifier.py` adds a specialized,
+metadata-only restoration check for non-empty cross-ledger backup-set history.
+
+- independently validates source and restored integrity snapshots;
+- requires the `CrossLedgerBackupSetInventory` ledger type;
+- requires a non-empty backup-set count within the 128-record engineering bound;
+- requires the dedicated `ledger_backup_set_audit_events` chain to be present,
+  valid, and to have an event count and final sequence matching the backup-set count;
+- compares source and restored backup-set counts and audit-chain heads;
+- delegates complete ledger checkpoint equivalence to the general restore verifier;
+- returns only counts and digests, with execution authorization, resumption, and
+  automatic retry explicitly false.
+
+This verifies that the declared local backup-set metadata and its audit-chain head
+survive a synthetic database restoration unchanged. It does not create or inspect
+backup artifacts, verify artifact bytes, prove off-host durability, or authenticate
+the unkeyed LOCAL_SQLITE_UNSEALED checkpoints. It is not a production disaster-
+recovery service.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_restore_verifier.py'`
