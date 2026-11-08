@@ -455,3 +455,36 @@ recovery service.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_restore_verifier.py'`
+
+## Persistent cross-ledger backup-set restoration receipts
+
+`scripts/enterprise_hq_backup_set_restore_ledger.py` adds a bounded, append-only
+receipt ledger for completed cross-ledger backup-set restoration-equivalence
+checks.
+
+- runs the specialized source/restored snapshot verifier inside a serialized
+  SQLite write transaction before accepting a receipt;
+- records only source/restored snapshot digests, backup-set and audit-event
+  counts, audit-chain head digests, and a UTC verification timestamp;
+- derives an opaque deterministic receipt ID and canonical receipt digest;
+- treats an identical snapshot pair at the same timestamp as idempotent and
+  rejects conflicting receipt content;
+- appends a separate sequenced SHA-256 audit event atomically with the receipt;
+- verifies receipt schemas, digest derivation, audit sequence, predecessor
+  hashes, event counts, and restart integrity as part of the inherited ledger
+  verification path;
+- caps retained receipts at 256 and fails closed at capacity;
+- never stores backup-set IDs, member IDs, artifact paths, artifact bytes,
+  private payloads, or credentials;
+- never creates, copies, uploads, reads, or deletes backup artifacts and never
+  authorizes execution, resumes a task, or retries automatically.
+
+The receipt proves only that the deterministic local verifier accepted the
+provided, integrity-valid snapshots at the recorded time. The snapshots remain
+unkeyed local SQLite metadata; this is not a signed attestation, off-host backup
+service, proof of artifact existence, or production disaster-recovery
+certification.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_restore_ledger.py'`
