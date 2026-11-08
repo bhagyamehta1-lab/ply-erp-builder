@@ -355,6 +355,8 @@ class ObserverFreshnessBackupAvailabilityLedger:
                 counts = json.loads(row["source_status_counts_json"])
             except (TypeError, ValueError):
                 _corrupt("OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_COUNTS_INVALID")
+            if _canonical(counts) != row["source_status_counts_json"]:
+                _corrupt("OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_COUNTS_ENCODING_INVALID")
             metadata.update({
                 "file_sha256": row["file_sha256"],
                 "source_receipt_count": row["source_receipt_count"],

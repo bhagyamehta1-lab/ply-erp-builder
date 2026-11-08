@@ -215,6 +215,28 @@ class ObserverFreshnessBackupAvailabilityLedgerTests(unittest.TestCase):
         with self.assertRaises(ObserverFreshnessBackupAvailabilityLedgerCorruptionError):
             self.ledger.verify()
 
+
+    def test_noncanonical_status_count_encoding_is_rejected(self):
+        self.ledger.append_observation(self.available, recorded_at=self.at())
+        self.ledger._connection.execute(
+            "DROP TRIGGER observer_freshness_backup_availability_no_update"
+        )
+        self.ledger._connection.execute(
+            "UPDATE observer_freshness_backup_availability_observations "
+            "SET source_status_counts_json = ?",
+            ('{"FRESH": 2}',),
+        )
+        self.ledger._connection.execute(
+            "CREATE TRIGGER observer_freshness_backup_availability_no_update "
+            "BEFORE UPDATE ON observer_freshness_backup_availability_observations "
+            "BEGIN SELECT RAISE(ABORT, 'OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_APPEND_ONLY'); END"
+        )
+        with self.assertRaisesRegex(
+            ObserverFreshnessBackupAvailabilityLedgerCorruptionError,
+            "OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_COUNTS_ENCODING_INVALID",
+        ):
+            self.ledger.verify()
+
     def test_broken_previous_hash_is_rejected(self):
         self.ledger.append_observation(self.available, recorded_at=self.at())
         self.ledger._connection.execute(
