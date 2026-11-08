@@ -707,3 +707,36 @@ signature, authenticated receipt, durable audit record, or proof of run origin.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness.py'`
+
+
+## Persistent observer freshness receipt ledger
+
+`scripts/enterprise_hq_observer_freshness_ledger.py` provides a bounded local
+SQLite history for already-sanitized observer freshness decision receipts.
+
+- accepts only receipts that pass the independent freshness receipt verifier;
+- requires a caller-supplied 64-character lowercase hexadecimal idempotency key,
+  stores only its SHA-256-derived opaque receipt identifier, and treats exact
+  replays as idempotent while rejecting key reuse with different content;
+- records a timezone-aware caller-supplied recording time, normalized to UTC;
+- chains records with canonical SHA-256 hashes and verifies sequence continuity,
+  monotonic recording time, receipt digests, and every previous-hash link;
+- enforces append-only SQLite triggers, owner-only database file permissions,
+  a 512-receipt limit, and a 1 MiB database page bound;
+- refuses new records at capacity and never automatically prunes or deletes
+  prior receipts;
+- returns aggregate status counts and a chain-head digest without timestamps,
+  repository names, workflow names, run identifiers, or idempotency keys;
+- keeps execution authorization, automatic dispatch, and automatic retry false.
+
+The ledger is a local persistence component, not a remote or cross-run storage
+service. GitHub-hosted runner filesystems are ephemeral; the company observer
+workflow runs this ledger's tests only and does not create, upload, or retain a
+database. A future runtime must explicitly provide an approved durable local
+volume before using the ledger operationally. The SHA-256 chain detects
+accidental or unsophisticated tampering but is not keyed authentication,
+non-repudiation, or proof of origin.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_ledger.py'`
