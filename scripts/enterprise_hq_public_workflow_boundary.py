@@ -37,8 +37,8 @@ SIGNALS = {
         r"(?:actions|contents|id-token|packages):\s*write)\s*$"
     ),
     "observer_boundary_overlap": re.compile(
-        r"(?i)(?:enterprise_hq_company_observer\.py|"
-        r"enterprise_hq_company_observer_artifact\.py|"
+        r"(?i)(?:scripts/enterprise_hq_company_observer\.py|"
+        r"scripts/enterprise_hq_company_observer_artifact\.py|"
         r"ENTERPRISE_HQ_READ_TOKEN)"
     ),
 }
