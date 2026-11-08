@@ -2,6 +2,12 @@ name: Build Windows EXE and Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_private_release:
+        description: "Explicitly approve publishing Windows and Android build outputs to the configured private ERP release."
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -90,6 +96,7 @@ jobs:
           $graphics.Dispose(); $bitmap.Dispose()
 
       - name: Publish Windows installer and smoke screenshot to private ERP release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_private_release == true }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
@@ -205,6 +212,7 @@ jobs:
             adb exec-out screencap -p > "$RUNNER_TEMP/android-smoke.png"
 
       - name: Publish Android APK and smoke screenshot to private ERP release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_private_release == true }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_PAT }}
