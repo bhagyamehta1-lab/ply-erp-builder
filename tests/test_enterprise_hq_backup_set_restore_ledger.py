@@ -238,26 +238,25 @@ class BackupSetRestoreReceiptLedgerTests(unittest.TestCase):
                 )
 
     def test_concurrent_identical_submissions_are_idempotent(self):
-        second = BackupSetRestoreReceiptLedger(
-            str(self.root / "source.sqlite3")
-        )
-        try:
-            def submit(ledger):
+        database = str(self.root / "source.sqlite3")
+
+        def submit(_):
+            ledger = BackupSetRestoreReceiptLedger(database)
+            try:
                 return ledger.record_restore_verification(
                     self.source_snapshot, self.restored_snapshot,
                     now=self.verified_at,
                 )
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                results = list(pool.map(submit, (self.source, second)))
-            self.assertEqual(results[0]["receipt_id"], results[1]["receipt_id"])
-            self.assertEqual(
-                sum(bool(item["created"]) for item in results), 1
-            )
-            self.assertEqual(
-                self.source.verify()["backup_set_restore_receipt_count"], 1
-            )
-        finally:
-            second.close()
+            finally:
+                ledger.close()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(submit, range(2)))
+        self.assertEqual(results[0]["receipt_id"], results[1]["receipt_id"])
+        self.assertEqual(sum(bool(item["created"]) for item in results), 1)
+        self.assertEqual(
+            self.source.verify()["backup_set_restore_receipt_count"], 1
+        )
 
     def test_rejects_naive_clock(self):
         with self.assertRaisesRegex(
