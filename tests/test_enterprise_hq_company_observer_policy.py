@@ -196,6 +196,24 @@ class CompanyObserverPolicyTests(unittest.TestCase):
             '        args.output.write_text(rendered + "\\n", encoding="utf-8")\n        args.output.unlink()', 1
         ))
 
+    def test_rejects_missing_artifact_validation_step(self):
+        step = (
+            "      - name: Validate aggregate-only observer artifact\\n"
+            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\\n'
+        )
+        self.reject(workflow=WORKFLOW.replace(step, "", 1))
+
+    def test_rejects_artifact_validation_after_upload(self):
+        step = (
+            "      - name: Validate aggregate-only observer artifact\\n"
+            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\\n'
+        )
+        altered = WORKFLOW.replace(step, "", 1).rstrip() + "\\n" + step
+        self.reject(workflow=altered)
+
+    def test_rejects_unconditional_artifact_upload(self):
+        self.reject(workflow=WORKFLOW.replace("if: success()", "if: always()", 1))
+
 
 if __name__ == "__main__":
     unittest.main()

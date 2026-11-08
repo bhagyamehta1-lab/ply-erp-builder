@@ -593,3 +593,36 @@ the checked files.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_policy.py'`
+
+
+## Sanitized observer artifact validation
+
+`scripts/enterprise_hq_company_observer_artifact.py` validates the observer's
+aggregate JSON report before GitHub Actions uploads it.
+
+- accepts only the fixed parent-company summary schema and exact Project 001
+  exclusion marker;
+- requires the three company-register checks to be `PASS`;
+- requires exactly 11 workstreams and validates status vocabulary, positive
+  per-status counts, and the aggregate sum;
+- requires the fixed non-execution, unauthenticated-agent, and
+  `NOT_PROVEN` uptime capability declarations;
+- requires the fixed privacy declarations and rejects additional fields;
+- rejects duplicate JSON keys, non-standard JSON constants, malformed JSON,
+  and reports larger than 16 KiB;
+- reads only the expected regular report file directly inside `RUNNER_TEMP`,
+  rejects symlinks and paths outside that directory, and performs no network
+  access or file writes;
+- prints only a canonical SHA-256 digest, aggregate counts, and fixed
+  non-authorization flags;
+- gates artifact upload on successful validation rather than uploading after
+  a failed observer or validator step.
+
+The digest is an unkeyed integrity identifier for the canonical report, not a
+signature or proof of origin. The validator checks the report schema and
+aggregate invariants; it does not independently re-fetch private governance
+data or authenticate GitHub runner isolation.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_artifact.py'`

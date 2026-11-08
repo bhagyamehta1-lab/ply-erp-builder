@@ -151,8 +151,29 @@ def _validate_workflow(text):
         'python scripts/enterprise_hq_company_observer.py '
         '--output "$RUNNER_TEMP/enterprise-hq-company-summary.json"'
     )
-    if run_lines.count(observer_command) != 1 or len(run_lines) != len(tests) + 1:
+    artifact_validation_command = (
+        'python scripts/enterprise_hq_company_observer_artifact.py '
+        '--report "$RUNNER_TEMP/enterprise-hq-company-summary.json"'
+    )
+    if (
+        run_lines.count(observer_command) != 1
+        or run_lines.count(artifact_validation_command) != 1
+        or len(run_lines) != len(tests) + 2
+        or run_lines.index(artifact_validation_command) != run_lines.index(observer_command) + 1
+    ):
         _fail("OBSERVER_POLICY_COMMAND_SET_INVALID")
+
+    artifact_step = "\\n".join((
+        "      - name: Validate aggregate-only observer artifact",
+        '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"',
+    ))
+    upload_step = "      - name: Store aggregate-only report"
+    if (
+        text.count(artifact_step) != 1
+        or text.index(artifact_step) < text.index(expected_step)
+        or text.index(artifact_step) > text.index(upload_step)
+    ):
+        _fail("OBSERVER_POLICY_ARTIFACT_VALIDATION_STEP_INVALID")
 
     artifact_path = "path: " + "$" + "{{ runner.temp }}/enterprise-hq-company-summary.json"
     if (
@@ -160,7 +181,8 @@ def _validate_workflow(text):
         or artifact_path not in text
         or "retention-days: 1" not in text
         or "if-no-files-found: ignore" not in text
-        or "if: always()" not in text
+        or "if: success()" not in text
+        or "if: always()" in text
         or text.count("retention-days:") != 1
     ):
         _fail("OBSERVER_POLICY_ARTIFACT_INVALID")

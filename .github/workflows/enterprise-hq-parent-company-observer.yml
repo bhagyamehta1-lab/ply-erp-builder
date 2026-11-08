@@ -79,14 +79,18 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_ledger.py'
       - name: Test cross-ledger backup-set retention restoration equivalence
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_restore_verifier.py'
+      - name: Test sanitized observer artifact contract
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_artifact.py'
       - name: Test read-only company observer safety contract
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_policy.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
         run: python scripts/enterprise_hq_company_observer.py --output "$RUNNER_TEMP/enterprise-hq-company-summary.json"
+      - name: Validate aggregate-only observer artifact
+        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"
       - name: Store aggregate-only report
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: enterprise-hq-parent-company-summary-${{ github.run_id }}
