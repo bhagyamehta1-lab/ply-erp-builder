@@ -136,6 +136,7 @@ class ObserverFreshnessBackupReceiptLedgerTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.database.stat().st_mode), 0o600)
 
     def test_update_trigger_rejects_mutation(self):
+        self.append()
         with self.assertRaises(sqlite3.IntegrityError):
             self.ledger._connection.execute(
                 "UPDATE observer_freshness_backup_receipts SET receipt_count = 9"
