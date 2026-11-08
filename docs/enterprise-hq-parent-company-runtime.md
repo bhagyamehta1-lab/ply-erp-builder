@@ -280,3 +280,35 @@ evidence-result boundary, and execution_authorized remains false.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'`
+
+
+## Deterministic metadata-only unified ledger integrity checkpoint
+
+`scripts/enterprise_hq_ledger_integrity_snapshot.py` creates a read-only,
+reproducible checkpoint after the unified ledger's `verify()` and
+`recover_after_restart()` checks both pass.
+
+- inventories the SQLite audit tables and records only each chain's table name,
+  event count, final sequence number, and final SHA-256 record hash;
+- includes only bounded count fields and validated chain-status fields from the
+  ledger verification summary;
+- includes recovery status and explicit false values for execution authorization,
+  execution resumption, and automatic retry;
+- uses canonical JSON and an unkeyed SHA-256 digest, so unchanged database state
+  yields the same checkpoint digest;
+- rejects malformed audit-table schemas, missing chain statuses, invalid heads,
+  oversized inventories, corrupted ledgers, and recovery results that claim
+  execution or retry;
+- performs no database writes, filesystem reads, network access, payload export,
+  or task dispatch.
+
+The checkpoint is metadata-only and contains no task identifiers, evidence paths,
+manifests, signatures, or payload bytes. It is labelled
+`LOCAL_SQLITE_UNSEALED`: its unkeyed digest detects accidental checkpoint
+alteration but does not authenticate its origin or protect against an attacker
+able to rewrite both the database and checkpoint. It is not a backup, distributed
+consensus record, tamper-proof seal, semantic review, or execution authorization.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_integrity_snapshot.py'`
