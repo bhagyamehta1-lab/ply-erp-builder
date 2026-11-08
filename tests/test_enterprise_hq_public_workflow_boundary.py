@@ -290,5 +290,18 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         )
 
 
+    def test_summary_initializes_derived_signal_counters(self):
+        root = self.fixture({"legacy.yml": "name: Plain CI\n"})
+        result = self.audit(root)
+        self.assertIn("broad_secret_scope", result["restricted_signal_counts"])
+        self.assertIn(
+            "unconditional_artifact_publication", result["restricted_signal_counts"]
+        )
+        self.assertEqual(result["restricted_signal_counts"]["broad_secret_scope"], 0)
+        self.assertEqual(
+            result["restricted_signal_counts"]["unconditional_artifact_publication"], 0
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

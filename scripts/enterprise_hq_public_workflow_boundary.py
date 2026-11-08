@@ -202,6 +202,10 @@ def audit_workflow_directory(
     restricted_count = 0
     general_count = 0
     signal_counts = {name: 0 for name in SIGNALS}
+    signal_counts.update({
+        "broad_secret_scope": 0,
+        "unconditional_artifact_publication": 0,
+    })
     for name, content in contents.items():
         if name == EXPECTED_OBSERVER_FILE:
             continue
