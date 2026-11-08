@@ -741,3 +741,35 @@ non-repudiation, or proof of origin.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_ledger.py'`
+
+
+## Verified observer freshness ledger backup and restoration
+
+`scripts/enterprise_hq_observer_freshness_backup.py` adds a local-only SQLite
+backup and restore path for the sanitized freshness receipt ledger.
+
+- verifies the source ledger and its SQLite integrity before copying;
+- creates a new destination exclusively and refuses existing files, directories,
+  symlinks, missing parents, or a destination equal to the source;
+- uses SQLite's online backup API rather than copying a live database file;
+- validates the exact table, column, trigger, schema-version, permission, page,
+  and receipt-count bounds of an existing backup;
+- independently verifies the copied hash chain and compares aggregate source and
+  backup summaries before reporting equivalence;
+- restores only to a new destination and verifies the restored chain against the
+  verified backup before returning success;
+- returns only a file digest, receipt counts, status counts, chain-head digest,
+  and fixed non-authorization flags; filesystem paths and receipt payloads are
+  never emitted;
+- removes only a partial destination created by the current failed operation;
+- keeps execution authorization, automatic dispatch, and automatic retry false.
+
+This is a local filesystem recovery primitive exercised with temporary test
+databases. It is not connected to GitHub Actions runtime storage, an off-host
+backup service, or a durable company-wide volume. The file SHA-256 digest and
+ledger hash chain are unkeyed integrity checks, not authenticated signatures.
+No private governance data is read and no task is resumed or authorized.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup.py'`
