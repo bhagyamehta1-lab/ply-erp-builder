@@ -217,3 +217,35 @@ governance payloads into the public worker repository or its Actions workflow.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_verifier.py'`
+
+
+## Persistent evidence-integrity outcomes (local, metadata-only)
+
+`scripts/enterprise_hq_evidence_ledger.py` extends the unified task and
+verification-receipt ledger with persistent evidence-integrity outcomes.
+
+- re-runs the bounded evidence verifier in memory for every submission;
+- requires the exact task proposal and identical untrusted verification receipt
+  to exist in the same local ledger;
+- requires the receipt's evidence digest to equal the canonical manifest digest;
+- stores only task/receipt references, digests, evidence count, byte count, status,
+  timestamps and audit metadata; no raw evidence bytes, paths or manifest payloads;
+- treats identical outcomes as idempotent and rejects conflicting content;
+- writes a separate sequenced SHA-256 evidence audit chain atomically with the
+  verification record;
+- verifies inherited task, budget, lease, receipt and evidence chains before append
+  and after restart;
+- caps retained evidence outcomes at 256 and fails closed at capacity;
+- keeps semantic verification NOT_PERFORMED, identity authentication false,
+  reviewer independence NOT_ESTABLISHED and execution_authorized=false;
+- restart recovery verifies metadata only and never resumes or retries work.
+
+This ledger proves that supplied bytes matched a manifest digest at verification
+time. It does not persist or independently re-read the bytes later, inspect meaning,
+authenticate a reviewer, establish human/agent independence, or authorize execution.
+The SHA-256 chain is local integrity evidence, not a keyed tamper-proof seal or a
+distributed ledger.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'`
