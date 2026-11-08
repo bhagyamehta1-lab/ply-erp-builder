@@ -312,3 +312,33 @@ consensus record, tamper-proof seal, semantic review, or execution authorization
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_integrity_snapshot.py'`
+
+
+## Metadata-only ledger backup/restore equivalence verification
+
+scripts/enterprise_hq_ledger_restore_verifier.py compares two independently
+validated unified-ledger integrity snapshots. It does not create, copy, restore,
+or persist database backups.
+
+- validates both source and restored snapshots with the strict checkpoint verifier;
+- requires the same ledger type and audit-chain inventory count;
+- requires identical canonical SHA-256 snapshot digests, covering verification
+  summaries, recovery summaries, audit-chain names, event counts, sequence numbers,
+  and chain-head hashes;
+- returns only the two checkpoint digests, audit-chain count, and explicit false
+  values for execution authorization, resumption, and automatic retry;
+- rejects invalid, tampered, differently typed, or non-equivalent snapshots;
+- performs no database writes, filesystem reads, network access, payload export,
+  task dispatch, or automatic recovery.
+
+The focused tests use SQLite's local backup API to create a synthetic backup,
+open the restored database, and compare independently generated checkpoints.
+This verifies metadata equivalence for the test fixture; it is not a production
+backup service, off-host backup, disaster-recovery guarantee, or proof that external
+evidence payloads were restored. Checkpoints remain LOCAL_SQLITE_UNSEALED and use
+an unkeyed digest; they do not authenticate the source or protect against an actor
+able to rewrite both database and checkpoint.
+
+Run the focused suite with:
+
+python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_restore_verifier.py'
