@@ -67,6 +67,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_integrity_snapshot.py'
       - name: Test metadata-only ledger restore equivalence
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_restore_verifier.py'
+      - name: Test bounded metadata-only backup inventory and retention
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_inventory.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

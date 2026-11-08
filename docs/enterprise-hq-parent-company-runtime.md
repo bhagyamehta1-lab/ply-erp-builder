@@ -342,3 +342,31 @@ able to rewrite both database and checkpoint.
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_ledger_restore_verifier.py'
+
+
+## Bounded metadata-only backup inventory and retention evaluation
+
+`scripts/enterprise_hq_backup_inventory.py` adds a local append-only inventory for
+backup metadata. A record is accepted only after the supplied source and restored
+integrity snapshots independently pass the restore-equivalence verifier.
+
+- binds an opaque backup identifier to ledger type, source/restored snapshot digests,
+  audit-chain count, declared size, creation time, retention deadline, generation,
+  predecessor, and LOCAL_ONLY storage scope;
+- enforces contiguous per-ledger backup generations and exact predecessor linkage;
+- records a separate sequenced SHA-256 audit chain atomically with each inventory
+  entry and verifies the full lineage after restart;
+- caps the inventory at 256 records, declared size at 256 MiB, and the technical
+  retention window at 90 days; these are engineering bounds, not an adopted
+  enterprise records-retention schedule;
+- evaluates retained versus expired metadata without deleting records or artifacts;
+- stores no filesystem path, URL, backup bytes, private payload, or artifact digest.
+
+Artifact existence and bytes are NOT_INSPECTED; declared size is caller-supplied and
+not independently measured by this inventory. The ledger records restore-equivalence
+metadata only and is not a backup creator, backup store, off-host copy, or disaster
+recovery service. Automatic purge, execution, and task resumption remain false.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_inventory.py'`
