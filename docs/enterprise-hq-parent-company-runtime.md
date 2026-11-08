@@ -398,3 +398,34 @@ module does not establish a corporate records-retention policy.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_inventory.py'`
+
+
+## Cross-ledger backup-set reconciliation
+
+The parent-company lane now includes `CrossLedgerBackupSetInventory`, a metadata-only
+reconciliation layer over the existing local backup inventory.
+
+A backup set groups one registered backup generation from each of at least two
+distinct ledger types. It accepts no artifact paths or bytes. Before recording a
+set, it verifies the inherited inventory and requires every requested member to
+exist, remain within its declared retention window, and fall within a bounded
+creation-time skew (default 120 seconds; hard maximum 300 seconds).
+
+Cross-ledger generations are append-only. Generation 1 has no predecessor.
+Each later generation must reference the previously reconciled set for the exact
+same sorted ledger-type collection. A missing member, missing predecessor set,
+excessive time skew, expired member, duplicate type, or conflicting generation
+fails closed.
+
+The set record stores only opaque IDs, ledger-type names, counts, timestamps,
+and SHA-256 digests. A separate `ledger_backup_set_audit_events` chain records
+each reconciliation. The inventory's `verify()` and restart-recovery paths
+validate set membership, per-type generation alignment, predecessor lineage,
+set digests, and the new audit chain.
+
+This is a consistency check over declared local metadata, not proof that backup
+artifacts exist, that their bytes were copied, or that separate ledgers represent
+the same transactionally frozen point in time. The snapshots remain
+`LOCAL_SQLITE_UNSEALED`; hashes are unkeyed and do not authenticate their origin.
+No artifact is created, read, uploaded, or deleted. No task is resumed or
+authorized by this component.
