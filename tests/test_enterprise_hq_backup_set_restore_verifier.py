@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -32,14 +33,19 @@ class BackupSetRestoreEquivalenceTests(unittest.TestCase):
         self.source = CrossLedgerBackupSetInventory(
             str(self.root / "source.sqlite3")
         )
+        self.ledger_types = ["EvidenceVerificationLedger", "TaskLedger"]
+        self._populate(self.source, generations=1)
+        restored_connection = sqlite3.connect(self.root / "restored.sqlite3")
+        try:
+            self.source._connection.backup(restored_connection)
+        finally:
+            restored_connection.close()
         self.restored = CrossLedgerBackupSetInventory(
             str(self.root / "restored.sqlite3")
         )
-        self.ledger_types = ["EvidenceVerificationLedger", "TaskLedger"]
-        self._populate(self.source, generations=1)
-        self._populate(self.restored, generations=1)
         self.source_snapshot = build_ledger_integrity_snapshot(self.source)
         self.restored_snapshot = build_ledger_integrity_snapshot(self.restored)
+        self.assertEqual(self.source_snapshot, self.restored_snapshot)
 
     def tearDown(self):
         self.source.close()
