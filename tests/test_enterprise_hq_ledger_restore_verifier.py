@@ -61,6 +61,7 @@ class LedgerRestoreEquivalenceTests(unittest.TestCase):
             self.ledger._connection.backup(target)
         finally:
             target.close()
+        backup_path.chmod(0o600)
         restored = EvidenceVerificationLedger(str(backup_path))
         try:
             return build_ledger_integrity_snapshot(restored)
@@ -94,6 +95,7 @@ class LedgerRestoreEquivalenceTests(unittest.TestCase):
             self.ledger._connection.backup(target)
         finally:
             target.close()
+        backup_path.chmod(0o600)
         restored = EvidenceVerificationLedger(str(backup_path))
         try:
             second = dict(TASK, task_id="HQ-RESTORE-02")
