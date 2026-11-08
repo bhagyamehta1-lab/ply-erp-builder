@@ -1,10 +1,12 @@
 """Tests for persistent metadata-only evidence verification outcomes."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, Lock
@@ -18,6 +20,15 @@ from scripts.enterprise_hq_evidence_ledger import (
     EvidenceVerificationLedger,
 )
 from scripts.enterprise_hq_task_contract import validate_task
+
+AUDIENCE = "enterprise-hq-company-runtime"
+
+
+class FakeVerifier:
+    """Synthetic test adapter only; it does not authenticate production identities."""
+
+    def verify(self, **kwargs):
+        return True
 from scripts.enterprise_hq_task_ledger import (
     LedgerCorruptionError,
     LedgerError,
@@ -71,6 +82,31 @@ def bundle_fixture(task=None, *, receipt_id=RECEIPT_ID, payload=PAYLOAD):
     return manifest, payloads, verified["manifest_digest"]
 
 
+def reviewer_attestation_fixture(
+    task, now, receipt_id, *, principal_id="LOCAL-REVIEWER-B"
+):
+    validated = validate_task(task)
+    return {
+        "schema_version": "1.0.0",
+        "issuer": "https://identity.example.test",
+        "subject": "principal:synthetic-evidence-reviewer",
+        "audience": AUDIENCE,
+        "principal_id": principal_id,
+        "principal_type": "REVIEWER",
+        "role": "INDEPENDENT_VERIFIER",
+        "task_id": validated["task_id"],
+        "proposal_digest": validated["idempotency_key"],
+        "lease_id": None,
+        "receipt_id": receipt_id,
+        "issued_at": (now - timedelta(minutes=1)).isoformat(),
+        "expires_at": (now + timedelta(minutes=4)).isoformat(),
+        "nonce": "evidence_reviewer_nonce_" + receipt_id[-2:],
+        "algorithm": "Ed25519",
+        "key_id": "synthetic-reviewer-key",
+        "signature": base64.urlsafe_b64encode(b"x" * 64).decode("ascii").rstrip("="),
+    }
+
+
 def receipt_fixture(task=None, *, receipt_id=RECEIPT_ID, evidence_digest=None):
     task = task or task_fixture()
     validated = validate_task(task)
@@ -96,6 +132,7 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.database = str(Path(self.temp.name) / "evidence-ledger.sqlite3")
         self.task = task_fixture()
+        self.now = datetime(2026, 11, 8, 0, 0, tzinfo=timezone.utc)
         self.manifest, self.payloads, self.manifest_digest = bundle_fixture(self.task)
         self.receipt = receipt_fixture(
             self.task, evidence_digest=self.manifest_digest
@@ -104,10 +141,24 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def persist_reviewer(self, ledger, task, receipt, *, principal_id="LOCAL-REVIEWER-B"):
+        attestation = reviewer_attestation_fixture(
+            task, self.now, receipt["receipt_id"], principal_id=principal_id
+        )
+        return ledger.record_verified_principal(
+            task,
+            attestation,
+            expected_audience=AUDIENCE,
+            expected_receipt_id=receipt["receipt_id"],
+            now=self.now,
+            verifier=FakeVerifier(),
+        )
+
     def open_ready_ledger(self):
         ledger = EvidenceVerificationLedger(self.database)
         ledger.propose_many([self.task])
         ledger.record_untrusted_receipt(self.task, self.receipt)
+        self.persist_reviewer(ledger, self.task, self.receipt)
         return ledger
 
     def record(self, ledger, **overrides):
@@ -148,6 +199,34 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
             self.assertEqual(verified["evidence_verification_count"], 1)
             self.assertEqual(verified["evidence_verification_audit_event_count"], 1)
             self.assertEqual(verified["evidence_verification_audit_chain"], "VALID")
+            self.assertEqual(verified["evidence_reviewer_binding_count"], 1)
+            self.assertEqual(verified["evidence_reviewer_audit_event_count"], 1)
+            self.assertEqual(verified["evidence_reviewer_audit_chain"], "VALID")
+            self.assertEqual(result["reviewer_binding_status"], "REVIEWER_ATTESTATION_CLAIM_BOUND")
+            self.assertEqual(result["reviewer_identity_assurance"], "EXTERNAL_ADAPTER_ASSERTED")
+
+    def test_evidence_verification_requires_previously_consumed_reviewer_nonce(self):
+        with EvidenceVerificationLedger(self.database) as ledger:
+            ledger.propose_many([self.task])
+            ledger.record_untrusted_receipt(self.task, self.receipt)
+            with self.assertRaisesRegex(
+                LedgerError, "EVIDENCE_REVIEWER_IDENTITY_NOT_VERIFIED"
+            ):
+                self.record(ledger)
+            self.assertEqual(ledger.verify()["evidence_verification_count"], 0)
+
+    def test_reviewer_identity_must_match_receipt_verifier_reference(self):
+        with EvidenceVerificationLedger(self.database) as ledger:
+            ledger.propose_many([self.task])
+            ledger.record_untrusted_receipt(self.task, self.receipt)
+            self.persist_reviewer(
+                ledger, self.task, self.receipt, principal_id="OTHER.REVIEWER"
+            )
+            with self.assertRaisesRegex(
+                LedgerError, "EVIDENCE_REVIEWER_IDENTITY_RECEIPT_MISMATCH"
+            ):
+                self.record(ledger)
+            self.assertEqual(ledger.verify()["evidence_verification_count"], 0)
 
     def test_identical_evidence_verification_is_idempotent(self):
         with self.open_ready_ledger() as ledger:
@@ -223,6 +302,7 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
         with EvidenceVerificationLedger(self.database) as ledger:
             ledger.propose_many([self.task])
             ledger.record_untrusted_receipt(self.task, receipt)
+            self.persist_reviewer(ledger, self.task, receipt)
             ledger.record_verified_evidence(self.task, receipt, manifest, payloads)
         connection = sqlite3.connect(self.database)
         try:
@@ -230,6 +310,8 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
             for table in (
                 "evidence_verifications",
                 "evidence_verification_audit_events",
+                "evidence_reviewer_bindings",
+                "evidence_reviewer_audit_events",
                 "verification_receipts",
             ):
                 for row in connection.execute(f"SELECT * FROM {table}").fetchall():
@@ -317,6 +399,8 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
             ledger.propose_many([self.task, second_task])
             ledger.record_untrusted_receipt(self.task, self.receipt)
             ledger.record_untrusted_receipt(second_task, second_receipt)
+            self.persist_reviewer(ledger, self.task, self.receipt)
+            self.persist_reviewer(ledger, second_task, second_receipt)
             self.record(ledger)
             with patch(
                 "scripts.enterprise_hq_evidence_ledger.MAX_EVIDENCE_VERIFICATION_RECEIPTS",
@@ -373,6 +457,66 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
             verified = ledger.verify()
             self.assertEqual(verified["evidence_verification_count"], 1)
             self.assertEqual(verified["evidence_verification_audit_event_count"], 1)
+            self.assertEqual(verified["evidence_reviewer_binding_count"], 1)
+            self.assertEqual(verified["evidence_reviewer_audit_event_count"], 1)
+
+    def test_reviewer_binding_tampering_is_detected(self):
+        with self.open_ready_ledger() as ledger:
+            self.record(ledger)
+        connection = sqlite3.connect(self.database)
+        connection.execute(
+            "UPDATE evidence_reviewer_bindings SET attestation_digest = ?",
+            ("0" * 64,),
+        )
+        connection.commit()
+        connection.close()
+        with EvidenceVerificationLedger(self.database) as reopened:
+            with self.assertRaisesRegex(
+                LedgerCorruptionError, "EVIDENCE_REVIEWER_BINDING_INVARIANT_FAILED"
+            ):
+                reopened.verify()
+
+    def test_missing_reviewer_audit_event_is_detected(self):
+        with self.open_ready_ledger() as ledger:
+            self.record(ledger)
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM evidence_reviewer_audit_events")
+        connection.commit()
+        connection.close()
+        with EvidenceVerificationLedger(self.database) as reopened:
+            with self.assertRaisesRegex(
+                LedgerCorruptionError, "EVIDENCE_REVIEWER_AUDIT_EVENT_COUNT_MISMATCH"
+            ):
+                reopened.verify()
+
+    def test_reviewer_audit_hash_corruption_is_detected(self):
+        with self.open_ready_ledger() as ledger:
+            self.record(ledger)
+        connection = sqlite3.connect(self.database)
+        connection.execute(
+            "UPDATE evidence_reviewer_audit_events SET record_hash = ?",
+            ("0" * 64,),
+        )
+        connection.commit()
+        connection.close()
+        with EvidenceVerificationLedger(self.database) as reopened:
+            with self.assertRaisesRegex(
+                LedgerCorruptionError, "EVIDENCE_REVIEWER_AUDIT_CHAIN_HASH_INVALID"
+            ):
+                reopened.recover_after_restart()
+
+    def test_reviewer_audit_append_failure_rolls_back_evidence_binding(self):
+        with self.open_ready_ledger() as ledger:
+            with patch.object(
+                ledger, "_append_reviewer_event", side_effect=RuntimeError("injected")
+            ):
+                with self.assertRaisesRegex(RuntimeError, "injected"):
+                    self.record(ledger)
+            verified = ledger.verify()
+            self.assertEqual(verified["evidence_verification_count"], 0)
+            self.assertEqual(verified["evidence_verification_audit_event_count"], 0)
+            self.assertEqual(verified["evidence_reviewer_binding_count"], 0)
+            self.assertEqual(verified["evidence_reviewer_audit_event_count"], 0)
 
     def test_unified_ledger_reports_all_inherited_and_evidence_chains(self):
         with self.open_ready_ledger() as ledger:
@@ -384,6 +528,8 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
             self.assertEqual(result["audit_chain"], "VALID")
             self.assertEqual(result["verification_audit_chain"], "VALID")
             self.assertEqual(result["evidence_verification_audit_chain"], "VALID")
+            self.assertEqual(result["evidence_reviewer_binding_count"], 1)
+            self.assertEqual(result["evidence_reviewer_audit_chain"], "VALID")
             self.assertEqual(result["evidence_payload_retention"], "NONE")
 
     def test_result_never_claims_semantic_or_execution_authority(self):

@@ -249,3 +249,34 @@ distributed ledger.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'`
+
+
+## Reviewer-attestation-bound evidence verification (local, adapter-accepted claim)
+
+The evidence verification ledger now extends the persistent principal replay ledger
+and requires a previously consumed REVIEWER nonce claim bound to the exact task,
+proposal digest, and verification receipt before recording evidence integrity.
+
+- evidence verification is rejected unless exactly one persisted reviewer nonce claim
+  exists for the same task/proposal/receipt;
+- the reviewer principal ID must match the receipt's logical verifier reference;
+- the reviewer claim must have passed the injected principal-verifier adapter and
+  one-time nonce consumption in the inherited ledger;
+- a separate reviewer-binding table and SHA-256 audit chain are written atomically
+  with the evidence-verification record and its existing audit event;
+- restart verification checks the reviewer binding against the inherited principal
+  nonce record and verifies the complete reviewer audit chain;
+- missing, conflicting, or tampered reviewer bindings fail closed;
+- no raw signature, nonce, subject, attestation, evidence path, manifest, or payload
+  bytes are persisted by the evidence-verification subsystem.
+
+The synthetic verifier used by tests is not production authentication. The status
+EXTERNAL_ADAPTER_ASSERTED means only that the injected verifier adapter accepted the
+attestation. It does not prove the adapter is independently trusted, the reviewer is
+a different human/agent, or the evidence is semantically correct. Reviewer
+independence remains NOT_ESTABLISHED, identity authentication remains false at the
+evidence-result boundary, and execution_authorized remains false.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'`

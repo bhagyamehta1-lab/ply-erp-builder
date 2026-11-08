@@ -63,6 +63,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_verifier.py'
       - name: Test persistent metadata-only evidence verification ledger
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'
+      - name: Test reviewer-attestation-bound evidence verification
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_ledger.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
