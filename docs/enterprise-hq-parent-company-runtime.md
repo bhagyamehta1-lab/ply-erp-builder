@@ -875,3 +875,39 @@ The hash chain is unkeyed integrity metadata, not authenticated provenance.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability_ledger.py'`
+
+## Read-only backup receipt and availability reconciliation
+
+`scripts/enterprise_hq_backup_availability_reconciliation.py` compares the verified
+freshness-backup receipt ledger with the latest persistent availability observation
+for every backup.
+
+- exposes bounded, stable enumeration methods on both source ledgers; each method
+  verifies its complete append-only history before returning metadata-only rows;
+- compares backup sequence and receipt hash for every non-UNKNOWN observation;
+- for AVAILABLE observations, also compares file SHA-256, source receipt count,
+  canonical status counts, last source sequence, and source chain-head digest;
+- distinguishes missing observations, orphan observations, UNKNOWN observations,
+  lineage mismatches, and evidence mismatches;
+- uses the latest observation per backup for current availability while retaining
+  the complete history count;
+- re-verifies both source ledgers after enumeration and rejects a report if either
+  append-only chain changes during reconciliation;
+- returns aggregate counts only, with no backup identifiers, file digests, paths,
+  timestamps, or raw payloads;
+- performs no filesystem access, writes, restoration, retries, or task dispatch.
+
+A RECONCILED result means the two ledgers agree; it does not mean every artifact is
+available. Artifact availability is reported separately as ALL_AVAILABLE,
+PARTIAL_OR_UNAVAILABLE, or NO_BACKUPS. UNKNOWN observations remain incomplete until
+a later verified observation replaces them. This reconciler does not yet bind the
+separate metadata-only `LedgerBackupInventory` IDs to freshness-backup file digests;
+that inventory currently records `artifact_presence=NOT_INSPECTED` and needs an
+explicit artifact-digest contract before such a claim is possible.
+
+Run the focused suite with:
+
+```bash
+python -m unittest discover -s tests -p 'test_enterprise_hq_backup_availability_reconciliation.py'
+```
+

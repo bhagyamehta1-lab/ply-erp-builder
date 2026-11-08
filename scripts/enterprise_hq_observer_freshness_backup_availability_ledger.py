@@ -544,6 +544,41 @@ class ObserverFreshnessBackupAvailabilityLedger:
         result["status"] = "OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_LATEST_OBSERVATION"
         return result
 
+    def list_latest_observations(self) -> list[dict]:
+        """Return one verified, aggregate-only latest observation per backup.
+
+        The entire history is verified first. Results omit timestamps, paths, and
+        raw payloads so callers can reconcile ledgers without exposing file details.
+        """
+        self._connection.execute("BEGIN")
+        try:
+            self.verify()
+            rows = self._connection.execute(
+                f"""SELECT * FROM {_TABLE}
+                    WHERE sequence IN (
+                        SELECT MAX(sequence) FROM {_TABLE} GROUP BY backup_id
+                    )
+                    ORDER BY backup_id"""
+            ).fetchall()
+            if len(rows) > MAX_OBSERVATIONS:
+                _corrupt("OBSERVER_FRESHNESS_BACKUP_AVAILABILITY_CAPACITY_EXCEEDED")
+            result = []
+            for row in rows:
+                result.append({
+                    **self._metadata_from_row(row),
+                    "observation_id": row["observation_id"],
+                    "sequence": row["sequence"],
+                    "record_hash": row["record_hash"],
+                    "execution_authorized": False,
+                    "automatic_dispatch": False,
+                    "automatic_retry": False,
+                })
+            self._connection.commit()
+            return result
+        except Exception:
+            self._connection.rollback()
+            raise
+
     def recover_after_restart(self) -> dict:
         """Verify persisted availability history without resuming any operation."""
         summary = self.verify()

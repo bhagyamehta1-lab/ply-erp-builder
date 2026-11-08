@@ -157,6 +157,8 @@ def _validate_workflow(text):
         _fail("OBSERVER_POLICY_FRESHNESS_BACKUP_AVAILABILITY_TEST_MISSING")
     if "test_enterprise_hq_observer_freshness_backup_availability_ledger.py" not in tests:
         _fail("OBSERVER_POLICY_FRESHNESS_BACKUP_AVAILABILITY_LEDGER_TEST_MISSING")
+    if "test_enterprise_hq_backup_availability_reconciliation.py" not in tests:
+        _fail("OBSERVER_POLICY_BACKUP_AVAILABILITY_RECONCILIATION_TEST_MISSING")
     run_lines = [
         line.split("run:", 1)[1].strip()
         for line in text.splitlines() if re.match(r"^[ \t]+run:", line)

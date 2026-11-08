@@ -517,6 +517,43 @@ class ObserverFreshnessBackupReceiptLedger:
             "automatic_retry": False,
         }
 
+    def list_backup_receipts(self) -> list[dict]:
+        """Return a stable, verified snapshot of all backup lineage receipts.
+
+        The result contains aggregate lineage metadata only. Recording timestamps,
+        database paths, and backup payload bytes are deliberately omitted.
+        """
+        self._connection.execute("BEGIN")
+        try:
+            self.verify()
+            rows = self._connection.execute(
+                f'SELECT * FROM "{_TABLE}" ORDER BY sequence'
+            ).fetchall()
+            if len(rows) > MAX_BACKUP_RECEIPTS:
+                _corrupt("OBSERVER_FRESHNESS_BACKUP_RECEIPT_CAPACITY_CORRUPT")
+            result = [
+                {
+                    "backup_count": row["sequence"],
+                    "backup_id": row["backup_id"],
+                    "file_sha256": row["file_sha256"],
+                    "source_receipt_count": row["receipt_count"],
+                    "source_status_counts": json.loads(row["status_counts_json"]),
+                    "last_source_sequence": row["last_sequence"],
+                    "source_chain_head_digest": row["chain_head_digest"],
+                    "predecessor_backup_id": row["predecessor_backup_id"],
+                    "record_hash": row["record_hash"],
+                    "execution_authorized": False,
+                    "automatic_dispatch": False,
+                    "automatic_retry": False,
+                }
+                for row in rows
+            ]
+            self._connection.commit()
+            return result
+        except Exception:
+            self._connection.rollback()
+            raise
+
     def recover_after_restart(self) -> dict:
         """Perform read-only integrity verification after reopening the ledger."""
         summary = self.verify()
