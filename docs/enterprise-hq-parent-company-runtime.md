@@ -777,3 +777,36 @@ No private governance data is read and no task is resumed or authorized.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup.py'`
+
+## Persistent observer freshness backup lineage receipts
+
+`scripts/enterprise_hq_observer_freshness_backup_receipts.py` records a
+bounded local lineage for backups that have already passed the independent
+SQLite/schema/hash-chain equivalence checks.
+
+- accepts only the exact aggregate result from a verified freshness backup;
+- derives an opaque backup identifier from the backup file SHA-256 digest;
+- records the source receipt count, status counts, sequence, chain-head digest,
+  recording time, and predecessor backup identifier;
+- treats an exact backup-file replay as idempotent and rejects digest reuse with
+  conflicting metadata;
+- verifies the full predecessor chain, monotonic recording time, canonical
+  status counts, record digests, schema, and append-only triggers before every
+  append;
+- validates the existing schema on reopen rather than silently recreating a
+  missing trigger or unexpected table;
+- enforces owner-only database permissions, a 256-backup limit, and a 1 MiB
+  SQLite page bound;
+- exposes a read-only restart-recovery check that verifies history and never
+  authorizes execution, dispatch, or automatic retry;
+- emits only aggregate backup metadata and digests; no filesystem paths or
+  source receipt payloads are stored.
+
+The receipt ledger records that a local backup verification completed; it does
+not prove that the backup file remains present or provide off-host durability.
+The database is exercised only with temporary test files. GitHub-hosted runner
+storage remains ephemeral, and no shared durable volume is configured.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_receipts.py'`

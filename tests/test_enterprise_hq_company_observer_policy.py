@@ -246,5 +246,14 @@ class CompanyObserverPolicyTests(unittest.TestCase):
         )
         self.reject(workflow=altered)
 
+    def test_rejects_missing_observer_freshness_backup_receipt_suite(self):
+        altered = WORKFLOW.replace(
+            "test_enterprise_hq_observer_freshness_backup_receipts.py",
+            "test_missing_observer_freshness_backup_receipts.py",
+            1,
+        )
+        self.reject(workflow=altered)
+
+
 if __name__ == "__main__":
     unittest.main()
