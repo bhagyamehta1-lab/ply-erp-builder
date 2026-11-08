@@ -493,3 +493,36 @@ The specialized backup-set restore verifier also accepts the persistent
 `BackupSetRestoreReceiptLedger` subclass, whose integrity snapshots include
 the same cross-ledger backup-set audit chain plus its append-only restoration
 receipt history. Complete snapshot equivalence still applies to every chain.
+
+
+## Persistent cross-ledger backup-set retention history
+
+`scripts/enterprise_hq_backup_set_retention_ledger.py` adds append-only, aggregate-only
+retention evaluations over the existing cross-ledger backup-set inventory.
+
+- evaluates every reconciled backup set against the declared retention deadline of
+  each member; a set is classified as expired if any member has expired;
+- distinguishes retained, expired, and partially expired sets, plus aggregate
+  retained/expired member counts;
+- hashes only set digests, generation metadata, ledger-type digests, member counts,
+  and earliest/latest retention deadlines; it stores no backup-set IDs, member IDs,
+  filesystem paths, artifact bytes, or private payloads;
+- derives deterministic evaluation IDs and canonical SHA-256 evaluation digests;
+- treats an identical evaluation at the same timestamp as idempotent and rejects
+  clock rollback relative to the latest persisted evaluation;
+- appends a separate sequential SHA-256 audit chain atomically with each evaluation;
+- verifies evaluation schemas, aggregate count invariants, digest derivation,
+  audit sequence, predecessor hashes, event counts, and restart integrity;
+- caps history at 512 evaluations and fails closed at capacity;
+- never deletes inventory records or backup artifacts; automatic purge, artifact-byte
+  verification, execution authorization, resumption, and automatic retry remain false.
+
+An expired set means at least one declared member retention deadline has elapsed.
+This does not prove whether any artifact exists or whether its bytes remain available.
+The retention evaluation is local SQLite metadata with an unkeyed hash chain; it is
+not a signed retention attestation, a corporate records-retention policy, an artifact
+store, or a production disaster-recovery service.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_ledger.py'`

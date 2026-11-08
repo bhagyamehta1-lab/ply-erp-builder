@@ -21,6 +21,7 @@ MAX_BACKUP_SET_RESTORE_RECORDS = 128
 _BACKUP_SET_LEDGER_TYPES = frozenset({
     "CrossLedgerBackupSetInventory",
     "BackupSetRestoreReceiptLedger",
+    "BackupSetRetentionLedger",
 })
 _BACKUP_SET_AUDIT_TABLE = "ledger_backup_set_audit_events"
 
