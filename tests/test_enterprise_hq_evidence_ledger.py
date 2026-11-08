@@ -198,7 +198,7 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
                 self.record(ledger, manifest=changed)
 
     def test_payload_digest_mismatch_rejected(self):
-        changed = {PATH: b"tampered internal company evidence"}
+        changed = {PATH: b"sanitized internal company evidencf"}
         with self.open_ready_ledger() as ledger:
             with self.assertRaisesRegex(
                 EvidenceVerificationError, "EVIDENCE_DIGEST_MISMATCH"
