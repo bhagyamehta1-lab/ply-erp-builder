@@ -526,3 +526,35 @@ store, or a production disaster-recovery service.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_ledger.py'`
+
+
+## Cross-ledger backup-set retention restoration verification (metadata-only)
+
+`scripts/enterprise_hq_backup_set_retention_restore_verifier.py` verifies that
+persistent retention-evaluation history survives a local SQLite restoration.
+
+- accepts only `BackupSetRetentionLedger` integrity snapshots;
+- independently validates both bounded integrity checkpoints before comparing them;
+- requires the retention evaluation count and dedicated retention chain status;
+- requires exactly one `ledger_backup_set_retention_audit_events` inventory entry;
+- checks evaluation count, event count, final sequence, and audit-head shape;
+- permits an empty retention history only when the dedicated audit chain is also
+  empty (zero events, null sequence, null head);
+- compares source and restored retention counts and audit-head hashes;
+- delegates complete cross-ledger backup-set lineage equivalence to the existing
+  specialized restore verifier;
+- returns digests, counts, and audit-head hashes only;
+- keeps execution authorization, execution resumption, automatic retry, automatic
+  purge, and artifact-byte verification false.
+
+This is a metadata comparison over locally generated, unkeyed SQLite integrity
+snapshots. It does not inspect backup artifacts, authenticate the snapshot source,
+prove off-host durability, or provide a production disaster-recovery service.
+An attacker able to rewrite the complete local database and both snapshots is
+outside this verifier's assurance boundary.
+
+Run the focused suite with:
+
+```bash
+python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_restore_verifier.py'
+```
