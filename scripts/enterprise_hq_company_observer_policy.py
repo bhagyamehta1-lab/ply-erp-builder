@@ -163,7 +163,7 @@ def _validate_workflow(text):
     ):
         _fail("OBSERVER_POLICY_COMMAND_SET_INVALID")
 
-    artifact_step = "\\n".join((
+    artifact_step = "\n".join((
         "      - name: Validate aggregate-only observer artifact",
         '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"',
     ))
