@@ -218,8 +218,8 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_missing_public_workflow_boundary_inventory_suite(self):
         step = (
-            "      - name: Test public workflow separation inventory\\n"
-            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_public_workflow_boundary.py'\\n"
+            "      - name: Test public workflow separation inventory\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_public_workflow_boundary.py'\n"
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
