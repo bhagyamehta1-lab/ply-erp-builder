@@ -191,3 +191,29 @@ Run the focused suites with:
 python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_ledger.py'
 python -m unittest discover -s tests -p 'test_enterprise_hq_principal_policy_source.py'
 ```
+
+
+## Bounded company evidence integrity verifier
+
+`scripts/enterprise_hq_evidence_verifier.py` provides deterministic content-integrity
+checks for explicitly supplied, sanitized evidence bundles.
+
+- binds a manifest to an exact task ID, proposal digest and verification receipt ID;
+- accepts only approved Enterprise-HQ documentation, scripts, tests and the dedicated
+  parent-company observer workflow path;
+- rejects traversal, absolute paths, backslashes, duplicate paths, unsorted entries,
+  unknown fields and payload-set mismatches;
+- caps bundles at 16 entries, 256 KiB per entry and 1 MiB total;
+- verifies exact byte lengths and SHA-256 content digests;
+- returns only a canonical manifest digest, count, total byte count and binding
+  metadata; payload bytes are neither returned nor persisted;
+- does not access the filesystem or network and does not inspect evidence semantics;
+- explicitly leaves identity authentication and execution authorization false.
+
+The verifier is an integrity primitive, not an independent semantic reviewer. Callers
+must never pass private source, customer/vendor material, secrets or raw private
+governance payloads into the public worker repository or its Actions workflow.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_evidence_verifier.py'`
