@@ -558,3 +558,38 @@ Run the focused suite with:
 ```bash
 python -m unittest discover -s tests -p 'test_enterprise_hq_backup_set_retention_restore_verifier.py'
 ```
+
+
+## Static safety contract for the company observer
+
+`scripts/enterprise_hq_company_observer_policy.py` validates the checked-in
+company observer workflow and observer source without executing either.
+
+The contract requires:
+- one dedicated company-branch push target, a no-input manual observation, and
+  the existing periodic schedule;
+- one bounded Ubuntu job with a five-minute timeout;
+- repository permission limited to `contents: read`;
+- an allowlist of the three existing GitHub Actions used by the observer;
+- checkout with persistent credentials disabled;
+- exactly one step-scoped `ENTERPRISE_HQ_READ_TOKEN` reference;
+- only Enterprise-HQ test modules before the aggregate observer;
+- one aggregate-only report written under the runner temporary directory and
+  uploaded with one-day retention;
+- an AST-checked private-file allowlist containing only
+  `state/company_completion_register.json`;
+- a bounded private response, guarded network access, and fixed aggregate-only
+  report fields that explicitly exclude Project 001 and do not claim 24/7 uptime.
+
+The focused contract suite uses mutation tests to reject broader triggers,
+permissions, actions, secret scope, private paths, imports, network calls, file
+operations, and output claims.
+
+This is a static regression guard for the checked-in source. It does not prove
+GitHub-hosted runner isolation, actual secret permissions, GitHub App token scope,
+third-party action supply-chain integrity, or protection against changes outside
+the checked files.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_policy.py'`
