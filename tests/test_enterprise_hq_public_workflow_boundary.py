@@ -208,5 +208,87 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         ))
 
 
+    def test_classifies_untrusted_pull_request_context(self):
+        root = self.fixture({"legacy.yml": "on:\n  pull_request_target:\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["untrusted_event_context"], 1)
+
+    def test_classifies_manual_and_external_dispatch(self):
+        root = self.fixture({
+            "legacy.yml": "on:\n  workflow_dispatch:\n  repository_dispatch:\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["manual_or_external_dispatch"], 1)
+
+    def test_classifies_unpinned_action_reference(self):
+        root = self.fixture({
+            "legacy.yml": "steps:\n  - name: Checkout\n    uses: actions/checkout@v4\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["unpinned_action_reference"], 1)
+
+    def test_does_not_flag_sha_pinned_action_reference(self):
+        pinned = "0123456789abcdef0123456789abcdef01234567"
+        root = self.fixture({
+            "legacy.yml": f"steps:\n  - name: Checkout\n    uses: actions/checkout@{pinned}\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["unpinned_action_reference"], 0)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+
+    def test_classifies_workflow_level_secret_environment(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "env:\n  READ_TOKEN: secrets.READ_TOKEN\n"
+                "jobs:\n  check:\n    steps:\n      - run: echo safe\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["broad_secret_scope"], 1)
+
+    def test_does_not_flag_step_scoped_secret_environment(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "jobs:\n  check:\n    steps:\n      - name: Read\n"
+                "        env:\n          READ_TOKEN: secrets.READ_TOKEN\n"
+                "        run: python observer.py\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["broad_secret_scope"], 0)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+
+    def test_classifies_unconditional_artifact_publication(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "steps:\n  - name: Upload\n    if: always()\n"
+                "    uses: actions/upload-artifact@v4\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["unconditional_artifact_publication"], 1
+        )
+
+    def test_does_not_flag_success_conditioned_artifact_publication(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "steps:\n  - name: Upload\n    if: success()\n"
+                "    uses: actions/upload-artifact@v4\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["unconditional_artifact_publication"], 0
+        )
+
+    def test_classifies_dependency_install_commands(self):
+        root = self.fixture({"legacy.yml": "steps:\n  - run: npm install\n"})
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["network_or_dependency_install"], 1
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

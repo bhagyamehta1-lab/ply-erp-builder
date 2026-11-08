@@ -41,6 +41,19 @@ SIGNALS = {
         r"scripts/enterprise_hq_company_observer_artifact\.py|"
         r"ENTERPRISE_HQ_READ_TOKEN)"
     ),
+    "untrusted_event_context": re.compile(
+        r"(?im)^\s*(?:pull_request_target|pull_request|issue_comment|workflow_run):\s*$"
+    ),
+    "manual_or_external_dispatch": re.compile(
+        r"(?im)^\s*(?:workflow_dispatch|repository_dispatch):\s*$"
+    ),
+    "unpinned_action_reference": re.compile(
+        r"(?im)^\s*(?:-\s*)?uses:\s*(?!\./)[^\s@]+@(?!(?:[0-9a-f]{40})(?:\s|$))[^\s]+"
+    ),
+    "network_or_dependency_install": re.compile(
+        r"(?i)(?:\bcurl\b|\bwget\b|\bpip\s+install\b|\bnpm\s+install\b|"
+        r"\byarn\s+install\b|\bpnpm\s+install\b)"
+    ),
 }
 
 
@@ -83,8 +96,56 @@ def _observer_source(root: Path, supplied: str | None) -> str:
     return _read_regular_file(candidate, MAX_OBSERVER_BYTES)
 
 
+def _has_broad_secret_scope(text: str) -> bool:
+    """Detect workflow- or job-level secret environments, not step-scoped secrets."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^( {0,4})env:\s*$", line)
+        if match is None:
+            continue
+        indent = len(match.group(1))
+        block = []
+        for candidate in lines[index + 1:]:
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            if candidate.strip() and candidate_indent <= indent:
+                break
+            block.append(candidate)
+        if re.search(r"(?:\$\{\{\s*)?secrets\.", "\n".join(block), re.IGNORECASE):
+            return True
+    return False
+
+
+def _step_blocks(text: str):
+    """Yield bounded YAML step blocks using indentation, without executing YAML."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^( *)(?:-\s+name:|-\s+uses:)", line)
+        if match is None:
+            continue
+        indent = len(match.group(1))
+        end = index + 1
+        while end < len(lines):
+            if re.match(rf"^ {{{indent}}}-\s+", lines[end]):
+                break
+            end += 1
+        yield "\n".join(lines[index:end])
+
+
+def _has_unconditional_artifact_upload(text: str) -> bool:
+    always = re.compile(
+        r"(?im)^\s*if:\s*(?:\$\{\{\s*)?always\(\)(?:\s*\}\})?\s*$"
+    )
+    upload = re.compile(r"(?im)^\s*uses:\s*actions/upload-artifact@")
+    return any(upload.search(block) and always.search(block) for block in _step_blocks(text))
+
+
 def _classify(text: str) -> set[str]:
-    return {name for name, pattern in SIGNALS.items() if pattern.search(text)}
+    flags = {name for name, pattern in SIGNALS.items() if pattern.search(text)}
+    if _has_broad_secret_scope(text):
+        flags.add("broad_secret_scope")
+    if _has_unconditional_artifact_upload(text):
+        flags.add("unconditional_artifact_publication")
+    return flags
 
 
 def audit_workflow_directory(

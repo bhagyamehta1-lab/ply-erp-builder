@@ -656,3 +656,26 @@ those workflows. No legacy workflow is modified by this audit.
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_public_workflow_boundary.py'
+
+
+## Expanded public workflow risk signals (static, aggregate-only)
+
+The public workflow boundary inventory additionally counts these review indicators
+without emitting workflow names or source text:
+
+- untrusted event contexts (pull_request, pull_request_target, issue_comment,
+  and workflow_run);
+- manual or external dispatch triggers (workflow_dispatch and
+  repository_dispatch);
+- action references that use mutable tags rather than a 40-character commit SHA;
+- workflow- or job-level secret environments (step-scoped secret environments are
+  distinguished and are not classified as broad scope);
+- unconditional artifact uploads using if: always();
+- network and dependency-install commands such as curl, wget, pip install,
+  and npm install.
+
+These are conservative text/indentation heuristics, not a complete YAML parser or
+proof of exploitability. A positive count means human review is required; it does
+not prove that a workflow ran or that a vulnerability was exploited. The inventory
+never executes workflow commands, modifies workflow definitions, accesses private
+source, or authorizes task execution.
