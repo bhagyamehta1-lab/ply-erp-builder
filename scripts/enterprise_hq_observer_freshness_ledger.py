@@ -188,6 +188,7 @@ class ObserverFreshnessLedger:
 
         self._connection.execute("BEGIN IMMEDIATE")
         try:
+            self.verify()
             existing = self._connection.execute(
                 "SELECT sequence, recorded_at, receipt_json, decision_digest, record_hash "
                 "FROM observer_freshness_receipts WHERE receipt_id = ?",

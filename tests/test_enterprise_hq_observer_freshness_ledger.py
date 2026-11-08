@@ -311,6 +311,24 @@ class ObserverFreshnessLedgerTests(unittest.TestCase):
         with self.assertRaises(ObserverFreshnessLedgerCorruptionError):
             self.ledger.verify()
 
+    def test_append_refuses_to_extend_a_corrupted_chain(self):
+        self.append()
+        self.ledger._connection.execute(
+            "DROP TRIGGER observer_freshness_receipts_no_update"
+        )
+        self.ledger._connection.execute(
+            "UPDATE observer_freshness_receipts SET record_hash = ? WHERE sequence = 1",
+            ("e" * 64,),
+        )
+        with self.assertRaises(ObserverFreshnessLedgerCorruptionError):
+            self.append(2, 2000, "2026-11-08T12:01:00Z")
+        self.assertEqual(
+            self.ledger._connection.execute(
+                "SELECT COUNT(*) FROM observer_freshness_receipts"
+            ).fetchone()[0],
+            1,
+        )
+
     def test_module_has_no_network_or_process_execution_imports(self):
         import ast
         source = (

@@ -719,8 +719,9 @@ SQLite history for already-sanitized observer freshness decision receipts.
   stores only its SHA-256-derived opaque receipt identifier, and treats exact
   replays as idempotent while rejecting key reuse with different content;
 - records a timezone-aware caller-supplied recording time, normalized to UTC;
-- chains records with canonical SHA-256 hashes and verifies sequence continuity,
-  monotonic recording time, receipt digests, and every previous-hash link;
+- verifies the existing chain before every append, then chains records with
+  canonical SHA-256 hashes and verifies sequence continuity, monotonic recording
+  time, receipt digests, and every previous-hash link;
 - enforces append-only SQLite triggers, owner-only database file permissions,
   a 512-receipt limit, and a 1 MiB database page bound;
 - refuses new records at capacity and never automatically prunes or deletes
