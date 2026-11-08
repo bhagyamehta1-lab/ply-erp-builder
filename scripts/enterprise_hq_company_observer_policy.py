@@ -83,7 +83,7 @@ def _dict_value(node, name):
 def _validate_workflow(text):
     if not text or len(text.encode("utf-8")) > MAX_WORKFLOW_BYTES or "\t" in text or not text.endswith("\n"):
         _fail("OBSERVER_POLICY_WORKFLOW_FORMAT_INVALID")
-    top = re.findall(r"(?m)^([A-Za-z0-9_-]+):[ \t]*$", text)
+    top = re.findall(r"(?m)^([A-Za-z0-9_-]+):(?:[ \t].*)?$", text)
     if set(top) != {"name", "on", "permissions", "concurrency", "jobs"} or len(top) != 5:
         _fail("OBSERVER_POLICY_TOP_LEVEL_SCHEMA_INVALID")
     if not re.search(r"(?m)^name:\s*Enterprise-HQ Parent Company Observer\s*$", text):
