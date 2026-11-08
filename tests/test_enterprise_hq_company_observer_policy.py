@@ -192,23 +192,23 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_file_deletion(self):
         self.reject(observer=OBSERVER.replace(
-            '        args.output.write_text(rendered + "\\n", encoding="utf-8")',
-            '        args.output.write_text(rendered + "\\n", encoding="utf-8")\n        args.output.unlink()', 1
+            '        args.output.write_text(rendered + "\n", encoding="utf-8")',
+            '        args.output.write_text(rendered + "\n", encoding="utf-8")\n        args.output.unlink()', 1
         ))
 
     def test_rejects_missing_artifact_validation_step(self):
         step = (
-            "      - name: Validate aggregate-only observer artifact\\n"
-            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\\n'
+            "      - name: Validate aggregate-only observer artifact\n"
+            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\n'
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
     def test_rejects_artifact_validation_after_upload(self):
         step = (
-            "      - name: Validate aggregate-only observer artifact\\n"
-            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\\n'
+            "      - name: Validate aggregate-only observer artifact\n"
+            '        run: python scripts/enterprise_hq_company_observer_artifact.py --report "$RUNNER_TEMP/enterprise-hq-company-summary.json"\n'
         )
-        altered = WORKFLOW.replace(step, "", 1).rstrip() + "\\n" + step
+        altered = WORKFLOW.replace(step, "", 1).rstrip() + "\n" + step
         self.reject(workflow=altered)
 
     def test_rejects_unconditional_artifact_upload(self):
