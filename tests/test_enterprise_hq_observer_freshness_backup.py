@@ -6,6 +6,9 @@ import sqlite3
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import scripts.enterprise_hq_observer_freshness_backup as backup_module
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -286,6 +289,112 @@ class ObserverFreshnessBackupTests(unittest.TestCase):
             self.assertFalse(result["automatic_dispatch"])
             self.assertFalse(result["automatic_retry"])
 
+
+    def test_backup_destination_is_hidden_until_verification_finishes(self):
+        self.populate()
+        original_verify = backup_module._verified_summary
+
+        def inspect_temporary(path):
+            self.assertFalse(self.backup_path.exists())
+            return original_verify(path)
+
+        with patch.object(backup_module, "_verified_summary", side_effect=inspect_temporary):
+            result = create_verified_backup(self.ledger, self.backup_path)
+
+        self.assertEqual(result["status"], "OBSERVER_FRESHNESS_BACKUP_VERIFIED")
+        self.assertTrue(self.backup_path.is_file())
+
+    def test_interrupted_backup_removes_temporary_file(self):
+        original_copy = backup_module._copy_connection
+
+        def interrupt_after_copy(source, destination):
+            original_copy(source, destination)
+            raise RuntimeError("simulated backup interruption")
+
+        with patch.object(backup_module, "_copy_connection", side_effect=interrupt_after_copy):
+            with self.assertRaisesRegex(RuntimeError, "simulated backup interruption"):
+                create_verified_backup(self.ledger, self.backup_path)
+
+        self.assertFalse(self.backup_path.exists())
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["source.sqlite3"],
+        )
+
+    def test_interrupted_restore_keeps_backup_and_removes_temporary_file(self):
+        self.populate()
+        create_verified_backup(self.ledger, self.backup_path)
+        original_copy = backup_module._copy_connection
+
+        def interrupt_after_copy(source, destination):
+            original_copy(source, destination)
+            raise RuntimeError("simulated restore interruption")
+
+        with patch.object(backup_module, "_copy_connection", side_effect=interrupt_after_copy):
+            with self.assertRaisesRegex(RuntimeError, "simulated restore interruption"):
+                restore_verified_backup(self.backup_path, self.restore_path)
+
+        self.assertFalse(self.restore_path.exists())
+        self.assertEqual(
+            verify_backup_equivalence(self.ledger, self.backup_path)["receipt_count"],
+            2,
+        )
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["backup.sqlite3", "source.sqlite3"],
+        )
+
+    def test_backup_verification_failure_never_publishes_destination(self):
+        def fail_verification(path):
+            raise ObserverFreshnessBackupError("simulated verification failure")
+
+        with patch.object(backup_module, "_verified_summary", side_effect=fail_verification):
+            with self.assertRaisesRegex(ObserverFreshnessBackupError, "simulated verification failure"):
+                create_verified_backup(self.ledger, self.backup_path)
+
+        self.assertFalse(self.backup_path.exists())
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["source.sqlite3"],
+        )
+
+    def test_backup_publish_race_never_overwrites_competing_destination(self):
+        original_copy = backup_module._copy_connection
+
+        def create_competing_destination(source, temporary):
+            original_copy(source, temporary)
+            self.backup_path.write_bytes(b"concurrent destination")
+            os.chmod(self.backup_path, 0o600)
+
+        with patch.object(backup_module, "_copy_connection", side_effect=create_competing_destination):
+            with self.assertRaises(ObserverFreshnessBackupError):
+                create_verified_backup(self.ledger, self.backup_path)
+
+        self.assertEqual(self.backup_path.read_bytes(), b"concurrent destination")
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["backup.sqlite3", "source.sqlite3"],
+        )
+
+    def test_restore_publish_race_never_overwrites_competing_destination(self):
+        self.populate()
+        create_verified_backup(self.ledger, self.backup_path)
+        original_copy = backup_module._copy_connection
+
+        def create_competing_destination(source, temporary):
+            original_copy(source, temporary)
+            self.restore_path.write_bytes(b"concurrent destination")
+            os.chmod(self.restore_path, 0o600)
+
+        with patch.object(backup_module, "_copy_connection", side_effect=create_competing_destination):
+            with self.assertRaises(ObserverFreshnessBackupError):
+                restore_verified_backup(self.backup_path, self.restore_path)
+
+        self.assertEqual(self.restore_path.read_bytes(), b"concurrent destination")
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["backup.sqlite3", "restored.sqlite3", "source.sqlite3"],
+        )
 
 if __name__ == "__main__":
     unittest.main()

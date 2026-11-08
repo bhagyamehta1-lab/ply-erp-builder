@@ -749,8 +749,11 @@ Run the focused suite with:
 backup and restore path for the sanitized freshness receipt ledger.
 
 - verifies the source ledger and its SQLite integrity before copying;
-- creates a new destination exclusively and refuses existing files, directories,
-  symlinks, missing parents, or a destination equal to the source;
+- writes to an owner-only sibling temporary file and keeps the final
+  destination absent until schema, integrity, and ledger-equivalence checks pass;
+- publishes the verified file with an atomic no-overwrite hard link, so a racing
+  destination is never replaced;
+- removes interrupted temporary files without deleting a pre-existing destination;
 - uses SQLite's online backup API rather than copying a live database file;
 - validates the exact table, column, trigger, schema-version, permission, page,
   and receipt-count bounds of an existing backup;
@@ -764,8 +767,9 @@ backup and restore path for the sanitized freshness receipt ledger.
 - removes only a partial destination created by the current failed operation;
 - keeps execution authorization, automatic dispatch, and automatic retry false.
 
-This is a local filesystem recovery primitive exercised with temporary test
-databases. It is not connected to GitHub Actions runtime storage, an off-host
+Crash-interruption and destination-race tests verify that partial temporary files are
+removed and competing destination files are never overwritten. This is a local
+filesystem recovery primitive exercised with temporary test databases. It is not connected to GitHub Actions runtime storage, an off-host
 backup service, or a durable company-wide volume. The file SHA-256 digest and
 ledger hash chain are unkeyed integrity checks, not authenticated signatures.
 No private governance data is read and no task is resumed or authorized.

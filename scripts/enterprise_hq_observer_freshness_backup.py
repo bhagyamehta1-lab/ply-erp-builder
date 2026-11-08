@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import stat
+import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -206,17 +207,55 @@ def _verified_summary(path) -> dict:
         _fail("OBSERVER_FRESHNESS_BACKUP_LEDGER_VERIFICATION_FAILED")
 
 
-def _reserve_destination(path: Path) -> None:
-    flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+def _temporary_destination(destination: Path) -> Path:
+    """Create an owner-only sibling file while keeping the final path absent."""
+    descriptor = None
+    name = None
     try:
-        descriptor = os.open(path, flags, 0o600)
+        descriptor, name = tempfile.mkstemp(
+            prefix=".enterprise-hq-observer-freshness-",
+            suffix=".tmp",
+            dir=destination.parent,
+        )
         os.close(descriptor)
+        descriptor = None
+        return Path(name)
+    except OSError:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if name is not None:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+        _fail("OBSERVER_FRESHNESS_BACKUP_TEMPORARY_CREATE_FAILED")
+
+
+def _publish_verified_destination(temporary: Path, destination: Path) -> None:
+    """Atomically publish a verified file without replacing a racing destination."""
+    try:
+        os.link(temporary, destination, follow_symlinks=False)
     except FileExistsError:
         _fail("OBSERVER_FRESHNESS_BACKUP_DESTINATION_EXISTS")
+    except (NotImplementedError, OSError):
+        _fail("OBSERVER_FRESHNESS_BACKUP_PUBLISH_FAILED")
+    try:
+        os.unlink(temporary)
     except OSError:
-        _fail("OBSERVER_FRESHNESS_BACKUP_DESTINATION_CREATE_FAILED")
+        try:
+            temporary_stat = temporary.lstat()
+            destination_stat = destination.lstat()
+            if (
+                temporary_stat.st_dev == destination_stat.st_dev
+                and temporary_stat.st_ino == destination_stat.st_ino
+            ):
+                os.unlink(destination)
+        except OSError:
+            pass
+        _fail("OBSERVER_FRESHNESS_BACKUP_PUBLISH_CLEANUP_FAILED")
 
 
 def _copy_connection(source_connection, destination: Path) -> None:
@@ -272,8 +311,8 @@ def _file_digest(path: Path) -> str:
         _fail("OBSERVER_FRESHNESS_BACKUP_DIGEST_FAILED")
 
 
-def _cleanup_created(path: Path, created: bool) -> None:
-    if created and path.exists() and not path.is_symlink() and path.is_file():
+def _cleanup_temporary(path: Path) -> None:
+    if path.exists() and not path.is_symlink() and path.is_file():
         try:
             os.unlink(path)
         except OSError:
@@ -295,24 +334,24 @@ def _response(status: str, summary: dict, file_digest: str) -> dict:
 def create_verified_backup(
     source_ledger: ObserverFreshnessLedger, backup_path
 ) -> dict:
-    """Create a new local SQLite backup and independently verify full ledger equivalence."""
+    """Verify a sibling temporary backup before atomically publishing it."""
     source_summary = _source_summary(source_ledger)
     destination = _new_destination(backup_path, source=source_ledger._path)
-    created = False
+    temporary = _temporary_destination(destination)
     try:
-        _reserve_destination(destination)
-        created = True
-        _copy_connection(source_ledger._connection, destination)
-        backup_summary = _verified_summary(destination)
+        _copy_connection(source_ledger._connection, temporary)
+        backup_summary = _verified_summary(temporary)
         if backup_summary != source_summary:
             _fail("OBSERVER_FRESHNESS_BACKUP_SOURCE_MISMATCH")
+        file_digest = _file_digest(temporary)
+        _publish_verified_destination(temporary, destination)
         return _response(
             "OBSERVER_FRESHNESS_BACKUP_VERIFIED",
             backup_summary,
-            _file_digest(destination),
+            file_digest,
         )
     except Exception:
-        _cleanup_created(destination, created)
+        _cleanup_temporary(temporary)
         raise
 
 
@@ -332,27 +371,27 @@ def verify_backup_equivalence(
 
 
 def restore_verified_backup(backup_path, restore_path) -> dict:
-    """Restore a verified backup to a new path and independently verify equivalence."""
+    """Restore to a verified sibling temporary file before atomic publication."""
     backup_summary = _verified_summary(backup_path)
     destination = _new_destination(restore_path, source=Path(backup_path))
-    created = False
+    temporary = _temporary_destination(destination)
     try:
         with ObserverFreshnessLedger(os.fspath(backup_path)) as backup:
             if _extract_summary(backup.verify()) != backup_summary:
                 _fail("OBSERVER_FRESHNESS_BACKUP_CHANGED_DURING_RESTORE")
-            _reserve_destination(destination)
-            created = True
-            _copy_connection(backup._connection, destination)
-        restored_summary = _verified_summary(destination)
+            _copy_connection(backup._connection, temporary)
+        restored_summary = _verified_summary(temporary)
         if restored_summary != backup_summary:
             _fail("OBSERVER_FRESHNESS_RESTORE_MISMATCH")
+        file_digest = _file_digest(temporary)
+        _publish_verified_destination(temporary, destination)
         return _response(
             "OBSERVER_FRESHNESS_RESTORE_VERIFIED",
             restored_summary,
-            _file_digest(destination),
+            file_digest,
         )
     except Exception:
-        _cleanup_created(destination, created)
+        _cleanup_temporary(temporary)
         raise
 
 
