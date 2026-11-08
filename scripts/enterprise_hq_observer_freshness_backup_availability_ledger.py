@@ -41,7 +41,7 @@ _AVAILABLE_FIELDS = {
     "backup_integrity_verified", "lineage_match_verified",
 }
 _COLUMNS = (
-    ("sequence", "INTEGER", 1, 1),
+    ("sequence", "INTEGER", 0, 1),
     ("observation_id", "TEXT", 1, 0),
     ("backup_id", "TEXT", 1, 0),
     ("availability", "TEXT", 1, 0),
