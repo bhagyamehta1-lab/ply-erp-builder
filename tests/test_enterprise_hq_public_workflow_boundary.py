@@ -47,7 +47,12 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         self.assertEqual(result["workflow_count"], 9)
         self.assertEqual(result["company_observer_count"], 1)
         self.assertGreaterEqual(result["restricted_legacy_workflow_count"], 1)
-        self.assertGreaterEqual(result["general_ci_workflow_count"], 1)
+        self.assertEqual(
+            result["workflow_count"],
+            result["company_observer_count"]
+            + result["restricted_legacy_workflow_count"]
+            + result["general_ci_workflow_count"],
+        )
         self.assertEqual(result["repository_wide_status"], "REVIEW_REQUIRED")
         self.assertEqual(result["status"], "COMPANY_OBSERVER_ISOLATION_VERIFIED")
 
