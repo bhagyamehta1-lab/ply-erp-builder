@@ -223,5 +223,13 @@ class CompanyObserverPolicyTests(unittest.TestCase):
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
+    def test_rejects_missing_observer_freshness_suite(self):
+        step = (
+            "      - name: Test deterministic observer freshness contract\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness.py'\n"
+        )
+        self.reject(workflow=WORKFLOW.replace(step, "", 1))
+
+
 if __name__ == "__main__":
     unittest.main()

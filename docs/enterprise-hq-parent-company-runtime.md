@@ -679,3 +679,31 @@ proof of exploitability. A positive count means human review is required; it doe
 not prove that a workflow ran or that a vulnerability was exploited. The inventory
 never executes workflow commands, modifies workflow definitions, accesses private
 source, or authorizes task execution.
+
+## Deterministic observer freshness decision contract
+
+`scripts/enterprise_hq_observer_freshness.py` evaluates a supplied pair of
+timezone-aware timestamps against a bounded periodic-observation interval. It
+does not query GitHub, poll workflow runs, create schedules, or dispatch work.
+
+- classifies the observation as `NEVER_OBSERVED`, `CLOCK_SKEW`, `FRESH`,
+  `GRACE_PERIOD`, or `MISSED`;
+- uses a default 30-minute interval and 15-minute grace period, matching the
+  observer's periodic cadence without claiming continuous availability;
+- rejects naive, malformed, oversized, or out-of-range inputs and clamps only
+  future skew of at most 60 seconds to zero age;
+- returns aggregate decision metadata without echoing timestamps, repository
+  identifiers, workflow names, or run payloads;
+- seals the decision fields with a canonical unkeyed SHA-256 digest and provides
+  a separate verifier for schema, age/status consistency, non-authorization
+  flags, and digest integrity;
+- keeps execution authorization, automatic dispatch, and automatic retry false.
+
+This is a deterministic decision contract over caller-supplied sanitized
+timestamps, not a live missed-run monitor. No Actions API permission was added
+to collect run history. The digest detects accidental alteration but is not a
+signature, authenticated receipt, durable audit record, or proof of run origin.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness.py'`

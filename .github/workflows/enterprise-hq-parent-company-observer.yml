@@ -85,6 +85,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_company_observer_policy.py'
       - name: Test public workflow separation inventory
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_public_workflow_boundary.py'
+      - name: Test deterministic observer freshness contract
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
