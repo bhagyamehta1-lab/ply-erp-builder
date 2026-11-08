@@ -160,9 +160,6 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
 
     def test_receipt_manifest_digest_mismatch_rejected(self):
         wrong = receipt_fixture(self.task, evidence_digest="f" * 64)
-        with self.open_ready_ledger() as ledger:
-            # Persist a distinct task/receipt pair for this negative case.
-            ledger.close()
         other_db = str(Path(self.temp.name) / "wrong-receipt.sqlite3")
         with EvidenceVerificationLedger(other_db) as ledger:
             ledger.propose_many([self.task])
@@ -223,8 +220,8 @@ class EvidenceVerificationLedgerTests(unittest.TestCase):
         marker = b"UNIQUE-SANITIZED-TEST-PAYLOAD-NOT-TO-BE-STORED"
         manifest, payloads, digest = bundle_fixture(self.task, payload=marker)
         receipt = receipt_fixture(self.task, evidence_digest=digest)
-        with self.open_ready_ledger() as ledger:
-            # Use a separate receipt row for the marker payload.
+        with EvidenceVerificationLedger(self.database) as ledger:
+            ledger.propose_many([self.task])
             ledger.record_untrusted_receipt(self.task, receipt)
             ledger.record_verified_evidence(self.task, receipt, manifest, payloads)
         connection = sqlite3.connect(self.database)

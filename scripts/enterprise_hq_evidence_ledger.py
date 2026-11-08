@@ -135,7 +135,7 @@ class EvidenceVerificationLedger(VerificationReceiptLedger):
         )
 
     @staticmethod
-    def _result(
+    def _evidence_result(
         *,
         task_id: str,
         receipt_id: str,
@@ -253,7 +253,7 @@ class EvidenceVerificationLedger(VerificationReceiptLedger):
                     raise TaskConflictError(
                         "EVIDENCE_VERIFICATION_RECEIPT_CONTENT_CONFLICT"
                     )
-                return self._result(
+                return self._evidence_result(
                     task_id=task_id,
                     receipt_id=receipt_id,
                     manifest_digest=manifest_digest,
@@ -295,7 +295,7 @@ class EvidenceVerificationLedger(VerificationReceiptLedger):
                 total_bytes=total_bytes,
             )
 
-        return self._result(
+        return self._evidence_result(
             task_id=task_id,
             receipt_id=receipt_id,
             manifest_digest=manifest_digest,
