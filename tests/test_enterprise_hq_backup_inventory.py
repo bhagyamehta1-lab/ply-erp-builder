@@ -259,6 +259,128 @@ class LedgerBackupInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(BackupInventoryError, "BACKUP_RESTORE_EQUIVALENCE_FAILED"):
             self._record(restored=changed)
 
+    def test_retention_evaluation_persists_metadata_only(self):
+        self._record()
+        result = self.inventory.evaluate_retention(now=self.now)
+        self.assertEqual(result["status"], "RETENTION_EVALUATED")
+        self.assertTrue(result["created"])
+        self.assertRegex(result["evaluation_id"], r"^hqre_[a-f0-9]{24}$")
+        self.assertEqual(result["inventory_count"], 1)
+        self.assertEqual(result["retained_count"], 1)
+        self.assertEqual(result["expired_count"], 0)
+        self.assertFalse(result["automatic_purge"])
+        self.assertEqual(result["records_deleted"], 0)
+        self.assertFalse(result["artifact_bytes_verified"])
+        self.assertFalse(result["execution_authorized"])
+        verified = self.inventory.verify()
+        self.assertEqual(verified["backup_retention_evaluation_count"], 1)
+        self.assertEqual(verified["backup_retention_audit_event_count"], 1)
+        self.assertEqual(verified["backup_retention_chain"], "VALID")
+
+    def test_identical_retention_evaluation_is_idempotent(self):
+        first = self.inventory.evaluate_retention(now=self.now)
+        second = self.inventory.evaluate_retention(now=self.now)
+        self.assertTrue(first["created"])
+        self.assertTrue(second["already_present"])
+        self.assertFalse(second["created"])
+        self.assertEqual(first["evaluation_id"], second["evaluation_id"])
+        self.assertEqual(self.inventory.verify()["backup_retention_evaluation_count"], 1)
+
+    def test_inventory_change_produces_new_retention_evaluation(self):
+        self._record()
+        first = self.inventory.evaluate_retention(now=self.now)
+        second_entry = self._entry(
+            backup_id="hqbk_aaaaaaaaaaaaaaaaaaaaaaaa",
+            generation=2,
+            predecessor_backup_id=self.entry["backup_id"],
+        )
+        self._record(entry=second_entry)
+        second = self.inventory.evaluate_retention(now=self.now)
+        self.assertNotEqual(first["inventory_digest"], second["inventory_digest"])
+        self.assertNotEqual(first["evaluation_id"], second["evaluation_id"])
+        self.assertEqual(second["inventory_count"], 2)
+
+    def test_retention_evaluation_history_survives_restart(self):
+        self._record()
+        self.inventory.evaluate_retention(now=self.now)
+        self.inventory.close()
+        self.inventory = LedgerBackupInventory(str(self.inventory_path))
+        recovered = self.inventory.recover_after_restart()
+        self.assertEqual(recovered["backup_retention_evaluations_recovered"], 1)
+        self.assertEqual(recovered["backup_retention_audit_events_recovered"], 1)
+        self.assertFalse(recovered["backup_automatic_purge"])
+
+    def test_corrupted_retention_evaluation_digest_is_rejected(self):
+        self.inventory.evaluate_retention(now=self.now)
+        self.inventory._connection.execute(
+            "UPDATE ledger_backup_retention_evaluations SET evaluation_digest = ?",
+            ("0" * 64,),
+        )
+        with self.assertRaisesRegex(
+            BackupInventoryCorruptionError,
+            "BACKUP_RETENTION_EVALUATION_DIGEST_INVALID",
+        ):
+            self.inventory.verify()
+
+    def test_corrupted_retention_audit_hash_is_rejected(self):
+        self.inventory.evaluate_retention(now=self.now)
+        self.inventory._connection.execute(
+            "UPDATE ledger_backup_retention_audit_events SET record_hash = ?",
+            ("0" * 64,),
+        )
+        with self.assertRaisesRegex(
+            BackupInventoryCorruptionError,
+            "BACKUP_RETENTION_AUDIT_CHAIN_HASH_INVALID",
+        ):
+            self.inventory.verify()
+
+    def test_retention_evaluation_capacity_fails_closed(self):
+        with patch(
+            "scripts.enterprise_hq_backup_inventory.MAX_RETENTION_EVALUATION_RECORDS", 1
+        ):
+            self.inventory.evaluate_retention(now=self.now)
+            with self.assertRaisesRegex(
+                BackupInventoryError,
+                "BACKUP_RETENTION_EVALUATION_CAPACITY_REACHED",
+            ):
+                self.inventory.evaluate_retention(now=self.now + timedelta(seconds=1))
+
+    def test_concurrent_identical_retention_evaluations_are_idempotent(self):
+        def worker():
+            ledger = LedgerBackupInventory(str(self.inventory_path))
+            try:
+                return ledger.evaluate_retention(now=self.now)
+            finally:
+                ledger.close()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: worker(), range(2)))
+        self.assertEqual(sum(1 for item in results if item["created"]), 1)
+        self.assertEqual(sum(1 for item in results if item["already_present"]), 1)
+        self.assertEqual(self.inventory.verify()["backup_retention_evaluation_count"], 1)
+
+    def test_corrupt_inventory_prevents_retention_evaluation(self):
+        self._record()
+        self.inventory._connection.execute(
+            "UPDATE ledger_backup_inventory SET entry_digest = ?",
+            ("0" * 64,),
+        )
+        with self.assertRaisesRegex(
+            BackupInventoryCorruptionError,
+            "BACKUP_INVENTORY_ENTRY_DIGEST_INVALID",
+        ):
+            self.inventory.evaluate_retention(now=self.now)
+        count = self.inventory._connection.execute(
+            "SELECT COUNT(*) FROM ledger_backup_retention_evaluations"
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_retention_result_exposes_no_artifact_path_or_payload(self):
+        result = self.inventory.evaluate_retention(now=self.now)
+        self.assertNotIn("path", result)
+        self.assertNotIn("artifact_path", result)
+        self.assertNotIn("payload", result)
+        self.assertFalse(result["artifact_bytes_verified"])
+
     def test_retention_evaluation_requires_aware_utc_clock(self):
         with self.assertRaisesRegex(BackupInventoryError, "BACKUP_INVENTORY_CLOCK_INVALID"):
             self.inventory.evaluate_retention(now=datetime(2026, 11, 8, 5, 0))

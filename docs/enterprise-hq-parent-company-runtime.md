@@ -370,3 +370,31 @@ recovery service. Automatic purge, execution, and task resumption remain false.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_inventory.py'`
+
+## Persistent backup-retention evaluation history (local, metadata-only)
+
+`LedgerBackupInventory.evaluate_retention()` now records a bounded history of
+non-destructive retention evaluations.
+
+- computes a canonical digest of the current backup-inventory metadata (opaque backup
+  IDs, ledger types, generations, retention deadlines, and entry digests only);
+- derives an opaque evaluation ID from the canonical evaluation digest;
+- persists evaluated time, inventory/retained/expired counts, and the inventory digest;
+- treats an identical evaluation of the same inventory at the same timestamp as
+  idempotent; a changed inventory or timestamp creates a distinct evaluation;
+- appends a separate sequenced SHA-256 retention-audit event atomically with the
+  evaluation record;
+- verifies evaluation digests, audit sequence, predecessor hashes, and event counts
+  during every inherited ledger verification and restart recovery;
+- caps retained evaluation records at 1,024 and fails closed at capacity;
+- never deletes inventory records or backup artifacts, never inspects artifact bytes,
+  and never authorizes execution.
+
+The history is local SQLite metadata with an unkeyed hash chain. It detects inconsistent
+records but is not a keyed tamper-proof seal, distributed retention service, or proof
+that any backup artifact exists. Retention deadlines remain technical metadata; this
+module does not establish a corporate records-retention policy.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_inventory.py'`

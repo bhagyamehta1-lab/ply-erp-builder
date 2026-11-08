@@ -18,9 +18,11 @@ from scripts.enterprise_hq_task_ledger import LedgerCorruptionError, LedgerError
 MAX_BACKUP_INVENTORY_RECORDS = 256
 MAX_DECLARED_BACKUP_SIZE_BYTES = 256 * 1024 * 1024
 MAX_BACKUP_RETENTION_DAYS = 90
+MAX_RETENTION_EVALUATION_RECORDS = 1024
 MAX_CREATED_AT_FUTURE_SKEW_SECONDS = 30
 
 _BACKUP_ID = re.compile(r"^hqbk_[a-f0-9]{24}$")
+_RETENTION_EVALUATION_ID = re.compile(r"^hqre_[a-f0-9]{24}$")
 _LEDGER_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _HEX_64 = re.compile(r"^[a-f0-9]{64}$")
 _ENTRY_FIELDS = frozenset({
@@ -109,6 +111,32 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
                     previous_hash TEXT,
                     record_hash TEXT NOT NULL UNIQUE
                 );
+                CREATE TABLE IF NOT EXISTS ledger_backup_retention_evaluations (
+                    evaluation_id TEXT PRIMARY KEY,
+                    evaluated_at TEXT NOT NULL,
+                    inventory_count INTEGER NOT NULL CHECK (inventory_count BETWEEN 0 AND 256),
+                    retained_count INTEGER NOT NULL CHECK (retained_count BETWEEN 0 AND 256),
+                    expired_count INTEGER NOT NULL CHECK (expired_count BETWEEN 0 AND 256),
+                    inventory_digest TEXT NOT NULL,
+                    evaluation_digest TEXT NOT NULL UNIQUE,
+                    automatic_purge INTEGER NOT NULL CHECK (automatic_purge = 0),
+                    records_deleted INTEGER NOT NULL CHECK (records_deleted = 0),
+                    artifact_bytes_verified INTEGER NOT NULL CHECK (artifact_bytes_verified = 0),
+                    execution_authorized INTEGER NOT NULL CHECK (execution_authorized = 0)
+                );
+                CREATE TABLE IF NOT EXISTS ledger_backup_retention_audit_events (
+                    sequence INTEGER PRIMARY KEY,
+                    evaluation_id TEXT NOT NULL UNIQUE
+                        REFERENCES ledger_backup_retention_evaluations(evaluation_id),
+                    evaluation_digest TEXT NOT NULL,
+                    event TEXT NOT NULL
+                        CHECK (event = 'BACKUP_RETENTION_EVALUATED'),
+                    occurred_at TEXT NOT NULL,
+                    previous_hash TEXT,
+                    record_hash TEXT NOT NULL UNIQUE
+                );
+                CREATE INDEX IF NOT EXISTS ledger_backup_retention_evaluated_at_idx
+                    ON ledger_backup_retention_evaluations(evaluated_at);
                 CREATE INDEX IF NOT EXISTS ledger_backup_inventory_type_generation_idx
                     ON ledger_backup_inventory(ledger_type, generation);
                 """
@@ -310,24 +338,138 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
             ).fetchone()
             return self._result(row, created=True, already_present=False)
 
-    def evaluate_retention(self, *, now: datetime | None = None) -> dict:
-        """Classify expired metadata without deleting inventory or backup artifacts."""
-        current = _now_utc(now)
-        self.verify()
-        rows = self._connection.execute(
-            "SELECT retain_until FROM ledger_backup_inventory"
-        ).fetchall()
-        expired = sum(1 for row in rows if _parse_utc(row["retain_until"]) <= current)
+    def _append_retention_event(
+        self, evaluation_id: str, evaluation_digest: str, occurred_at: str
+    ) -> None:
+        previous = self._connection.execute(
+            "SELECT sequence, record_hash FROM ledger_backup_retention_audit_events "
+            "ORDER BY sequence DESC LIMIT 1"
+        ).fetchone()
+        sequence = 1 if previous is None else previous["sequence"] + 1
+        previous_hash = None if previous is None else previous["record_hash"]
+        body = {
+            "schema_version": "1.0.0",
+            "sequence": sequence,
+            "evaluation_id": evaluation_id,
+            "evaluation_digest": evaluation_digest,
+            "event": "BACKUP_RETENTION_EVALUATED",
+            "occurred_at": occurred_at,
+            "previous_hash": previous_hash,
+        }
+        record_hash = hashlib.sha256(
+            _canonical_json(body).encode("utf-8")
+        ).hexdigest()
+        self._connection.execute(
+            """INSERT INTO ledger_backup_retention_audit_events
+               (sequence, evaluation_id, evaluation_digest, event, occurred_at,
+                previous_hash, record_hash)
+               VALUES (?, ?, ?, 'BACKUP_RETENTION_EVALUATED', ?, ?, ?)""",
+            (sequence, evaluation_id, evaluation_digest, occurred_at,
+             previous_hash, record_hash),
+        )
+
+    @staticmethod
+    def _retention_result(
+        row, *, created: bool, already_present: bool
+    ) -> dict:
         return {
             "status": "RETENTION_EVALUATED",
-            "inventory_count": len(rows),
-            "retained_count": len(rows) - expired,
-            "expired_count": expired,
+            "evaluation_id": row["evaluation_id"],
+            "evaluation_digest": row["evaluation_digest"],
+            "inventory_digest": row["inventory_digest"],
+            "evaluated_at": row["evaluated_at"],
+            "inventory_count": row["inventory_count"],
+            "retained_count": row["retained_count"],
+            "expired_count": row["expired_count"],
+            "created": created,
+            "already_present": already_present,
             "automatic_purge": False,
             "records_deleted": 0,
             "artifact_bytes_verified": False,
             "execution_authorized": False,
         }
+
+    def evaluate_retention(self, *, now: datetime | None = None) -> dict:
+        """Persist a bounded metadata-only retention evaluation; never delete records."""
+        current = _now_utc(now)
+        evaluated_at = current.isoformat().replace("+00:00", "Z")
+        with self._transaction():
+            self.verify()
+            rows = self._connection.execute(
+                """SELECT backup_id, ledger_type, generation, retain_until, entry_digest
+                   FROM ledger_backup_inventory ORDER BY ledger_type, generation"""
+            ).fetchall()
+            inventory_entries = [
+                {
+                    "backup_id": row["backup_id"],
+                    "ledger_type": row["ledger_type"],
+                    "generation": row["generation"],
+                    "retain_until": row["retain_until"],
+                    "entry_digest": row["entry_digest"],
+                }
+                for row in rows
+            ]
+            expired = sum(
+                1 for row in rows if _parse_utc(row["retain_until"]) <= current
+            )
+            inventory_count = len(rows)
+            retained = inventory_count - expired
+            inventory_digest = _digest({"entries": inventory_entries})
+            evaluation_body = {
+                "evaluated_at": evaluated_at,
+                "inventory_count": inventory_count,
+                "retained_count": retained,
+                "expired_count": expired,
+                "inventory_digest": inventory_digest,
+                "automatic_purge": False,
+                "records_deleted": 0,
+                "artifact_bytes_verified": False,
+                "execution_authorized": False,
+            }
+            evaluation_digest = _digest(evaluation_body)
+            evaluation_id = f"hqre_{evaluation_digest[:24]}"
+            existing = self._connection.execute(
+                "SELECT * FROM ledger_backup_retention_evaluations WHERE evaluation_id = ?",
+                (evaluation_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing["evaluation_digest"] != evaluation_digest:
+                    raise BackupInventoryError(
+                        "BACKUP_RETENTION_EVALUATION_ID_CONTENT_CONFLICT"
+                    )
+                return self._retention_result(
+                    existing, created=False, already_present=True
+                )
+
+            count = self._connection.execute(
+                "SELECT COUNT(*) FROM ledger_backup_retention_evaluations"
+            ).fetchone()[0]
+            if count >= MAX_RETENTION_EVALUATION_RECORDS:
+                raise BackupInventoryError(
+                    "BACKUP_RETENTION_EVALUATION_CAPACITY_REACHED"
+                )
+            self._connection.execute(
+                """INSERT INTO ledger_backup_retention_evaluations
+                   (evaluation_id, evaluated_at, inventory_count, retained_count,
+                    expired_count, inventory_digest, evaluation_digest,
+                    automatic_purge, records_deleted, artifact_bytes_verified,
+                    execution_authorized)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0)""",
+                (
+                    evaluation_id, evaluated_at, inventory_count, retained,
+                    expired, inventory_digest, evaluation_digest,
+                ),
+            )
+            self._append_retention_event(
+                evaluation_id, evaluation_digest, evaluated_at
+            )
+            saved = self._connection.execute(
+                "SELECT * FROM ledger_backup_retention_evaluations WHERE evaluation_id = ?",
+                (evaluation_id,),
+            ).fetchone()
+            return self._retention_result(
+                saved, created=True, already_present=False
+            )
 
     def verify(self) -> dict:
         """Verify inherited ledgers, backup metadata, lineage, and its audit chain."""
@@ -439,11 +581,120 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
             previous_hash = expected_hash
             seen.add(event["backup_id"])
 
+        retention_rows = self._connection.execute(
+            """SELECT evaluation_id, evaluated_at, inventory_count, retained_count,
+                      expired_count, inventory_digest, evaluation_digest,
+                      automatic_purge, records_deleted, artifact_bytes_verified,
+                      execution_authorized
+               FROM ledger_backup_retention_evaluations ORDER BY rowid"""
+        ).fetchall()
+        if len(retention_rows) > MAX_RETENTION_EVALUATION_RECORDS:
+            raise BackupInventoryCorruptionError(
+                "BACKUP_RETENTION_EVALUATION_CAPACITY_INVARIANT_FAILED"
+            )
+        retention_map = {}
+        for row in retention_rows:
+            evaluated_at = _parse_utc(row["evaluated_at"])
+            counts = (
+                row["inventory_count"], row["retained_count"], row["expired_count"]
+            )
+            if (
+                not isinstance(row["evaluation_id"], str)
+                or not _RETENTION_EVALUATION_ID.fullmatch(row["evaluation_id"])
+                or evaluated_at is None
+                or row["evaluated_at"] != evaluated_at.isoformat().replace("+00:00", "Z")
+                or any(type(value) is not int for value in counts)
+                or not 0 <= row["inventory_count"] <= MAX_BACKUP_INVENTORY_RECORDS
+                or not 0 <= row["retained_count"] <= row["inventory_count"]
+                or not 0 <= row["expired_count"] <= row["inventory_count"]
+                or row["retained_count"] + row["expired_count"] != row["inventory_count"]
+                or not isinstance(row["inventory_digest"], str)
+                or not _HEX_64.fullmatch(row["inventory_digest"])
+                or type(row["automatic_purge"]) is not int
+                or row["automatic_purge"] != 0
+                or type(row["records_deleted"]) is not int
+                or row["records_deleted"] != 0
+                or type(row["artifact_bytes_verified"]) is not int
+                or row["artifact_bytes_verified"] != 0
+                or type(row["execution_authorized"]) is not int
+                or row["execution_authorized"] != 0
+            ):
+                raise BackupInventoryCorruptionError(
+                    "BACKUP_RETENTION_EVALUATION_INVARIANT_FAILED"
+                )
+            evaluation_body = {
+                "evaluated_at": row["evaluated_at"],
+                "inventory_count": row["inventory_count"],
+                "retained_count": row["retained_count"],
+                "expired_count": row["expired_count"],
+                "inventory_digest": row["inventory_digest"],
+                "automatic_purge": False,
+                "records_deleted": 0,
+                "artifact_bytes_verified": False,
+                "execution_authorized": False,
+            }
+            expected_digest = _digest(evaluation_body)
+            if (
+                row["evaluation_digest"] != expected_digest
+                or row["evaluation_id"] != f"hqre_{expected_digest[:24]}"
+            ):
+                raise BackupInventoryCorruptionError(
+                    "BACKUP_RETENTION_EVALUATION_DIGEST_INVALID"
+                )
+            retention_map[row["evaluation_id"]] = row
+
+        retention_events = self._connection.execute(
+            """SELECT sequence, evaluation_id, evaluation_digest, event,
+                      occurred_at, previous_hash, record_hash
+               FROM ledger_backup_retention_audit_events ORDER BY sequence"""
+        ).fetchall()
+        if len(retention_events) != len(retention_rows):
+            raise BackupInventoryCorruptionError(
+                "BACKUP_RETENTION_AUDIT_EVENT_COUNT_MISMATCH"
+            )
+        previous_retention_hash = None
+        seen_evaluations = set()
+        for expected_sequence, event in enumerate(retention_events, start=1):
+            row = retention_map.get(event["evaluation_id"])
+            if (
+                event["sequence"] != expected_sequence
+                or row is None
+                or event["evaluation_id"] in seen_evaluations
+                or event["evaluation_digest"] != row["evaluation_digest"]
+                or event["event"] != "BACKUP_RETENTION_EVALUATED"
+                or event["occurred_at"] != row["evaluated_at"]
+                or event["previous_hash"] != previous_retention_hash
+            ):
+                raise BackupInventoryCorruptionError(
+                    "BACKUP_RETENTION_AUDIT_CHAIN_STRUCTURE_INVALID"
+                )
+            event_body = {
+                "schema_version": "1.0.0",
+                "sequence": event["sequence"],
+                "evaluation_id": event["evaluation_id"],
+                "evaluation_digest": event["evaluation_digest"],
+                "event": event["event"],
+                "occurred_at": event["occurred_at"],
+                "previous_hash": event["previous_hash"],
+            }
+            expected_hash = hashlib.sha256(
+                _canonical_json(event_body).encode("utf-8")
+            ).hexdigest()
+            if event["record_hash"] != expected_hash:
+                raise BackupInventoryCorruptionError(
+                    "BACKUP_RETENTION_AUDIT_CHAIN_HASH_INVALID"
+                )
+            previous_retention_hash = expected_hash
+            seen_evaluations.add(event["evaluation_id"])
+
         return {
             **base,
             "backup_inventory_count": len(rows),
             "backup_inventory_audit_event_count": len(events),
             "backup_inventory_chain": "VALID",
+            "backup_retention_evaluation_count": len(retention_rows),
+            "backup_retention_audit_event_count": len(retention_events),
+            "backup_retention_chain": "VALID",
             "backup_artifact_bytes_verified": False,
             "backup_automatic_purge": False,
         }
@@ -456,6 +707,8 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
             **base,
             "backup_inventory_records_recovered": verified["backup_inventory_count"],
             "backup_inventory_audit_events_recovered": verified["backup_inventory_audit_event_count"],
+            "backup_retention_evaluations_recovered": verified["backup_retention_evaluation_count"],
+            "backup_retention_audit_events_recovered": verified["backup_retention_audit_event_count"],
             "backup_artifact_payloads_retained": 0,
             "backup_automatic_purge": False,
             "execution_authorized": False,
@@ -467,5 +720,5 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
 __all__ = [
     "BackupInventoryError", "BackupInventoryCorruptionError", "LedgerBackupInventory",
     "MAX_BACKUP_INVENTORY_RECORDS", "MAX_DECLARED_BACKUP_SIZE_BYTES",
-    "MAX_BACKUP_RETENTION_DAYS",
+    "MAX_BACKUP_RETENTION_DAYS", "MAX_RETENTION_EVALUATION_RECORDS",
 ]
