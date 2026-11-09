@@ -1226,3 +1226,29 @@ a separate close/reopen operation using `recover_after_restart()`.
 The service is currently exercised with synthetic four-ledger reports and
 temporary SQLite databases in the company-only test workflow. It is not wired
 to a production backup database or external storage service.
+
+
+## Independent recovery-readiness transition history
+
+`scripts/enterprise_hq_backup_recovery_readiness_transitions.py` independently
+verifies the complete bounded readiness-history snapshot before summarizing
+adjacent evaluation transitions.
+
+- classifies READY→READY, READY→NOT_READY, NOT_READY→READY, and
+  NOT_READY→NOT_READY transitions;
+- counts blocker-addition and blocker-resolution events between adjacent
+  reports, without returning blocker names;
+- checks that a READY→NOT_READY transition introduces at least one blocker and
+  that a NOT_READY→READY transition resolves at least one blocker;
+- reports aggregate record, transition, classification-change, and latest
+  blocker counts only;
+- rejects invalid history hashes, sequence gaps, timestamp regressions,
+  malformed reports, raw identifiers, and authorization escalation;
+- preserves artifact-byte verification, execution, dispatch, and automatic
+  retry flags as false.
+
+Blocker event counts are per transition, not unique blocker counts across the
+entire history. The report is descriptive and does not infer causality, trigger
+alerts, authorize tasks, or perform writes. It does not change the append-only
+history and does not claim a process restart. All tests use synthetic reports
+and temporary in-memory SQLite ledgers.
