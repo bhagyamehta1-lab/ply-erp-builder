@@ -390,3 +390,10 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_rejects_missing_existing_history_crash_point_suite(self):
+        step = (
+            "      - name: Test existing-history recovery after SQLite crash points\\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_existing_history_crash_points.py'\\n"
+        )
+        self.reject(workflow=WORKFLOW.replace(step, "", 1))

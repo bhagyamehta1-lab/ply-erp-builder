@@ -127,6 +127,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_interruption.py'
       - name: Test recovery-readiness SQLite crash points
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_crash_points.py'
+      - name: Test existing-history recovery after SQLite crash points
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_existing_history_crash_points.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

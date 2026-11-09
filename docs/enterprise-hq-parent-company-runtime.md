@@ -1344,3 +1344,36 @@ No production database or external storage is connected.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_crash_points.py'`
+
+
+## Existing-history SQLite crash-point recovery
+
+`tests/test_enterprise_hq_backup_recovery_readiness_existing_history_crash_points.py`
+extends transaction-boundary fault injection to a database that already contains
+a verified multi-record history.
+
+The focused suite creates two committed synthetic readiness evaluations, then
+injects failures while attempting a third evaluation at the following boundaries:
+
+- before the record insert;
+- after the record insert;
+- after the sequence/chain-head checkpoint update;
+- immediately before SQLite commit;
+- after commit succeeds but the caller loses the acknowledgement.
+
+For every pre-commit failure, read-only reconciliation must report
+NOT_COMMITTED while preserving both earlier records, their sequence, and the
+original chain head. The lost-acknowledgement case must report COMMITTED with
+exactly one additional record; an exact replay must remain idempotent.
+
+A separate checkpoint-corruption test changes only the stored chain head in a
+temporary database and confirms that read-only verification fails closed
+without repairing or rewriting the checkpoint.
+
+All cases use synthetic aggregate reports and temporary local SQLite files.
+They do not use company backup data, simulate host/power failure, prove
+off-host durability, authorize retry, or dispatch work.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_existing_history_crash_points.py'`
