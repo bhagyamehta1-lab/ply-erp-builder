@@ -349,6 +349,13 @@ class CompanyObserverPolicyTests(unittest.TestCase):
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
+    def test_rejects_missing_recovery_readiness_service_suite(self):
+        step = (
+            "      - name: Test persisted recovery-readiness service integration\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_service.py'\n"
+        )
+        self.reject(workflow=WORKFLOW.replace(step, "", 1))
+
 
 if __name__ == "__main__":
     unittest.main()

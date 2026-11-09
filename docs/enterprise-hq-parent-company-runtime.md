@@ -1196,3 +1196,33 @@ Run the focused suites with:
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_ledger.py'`
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_snapshot.py'`
+
+## Persistent recovery-readiness evaluation service
+
+The service adapter `evaluate_and_record_backup_recovery_readiness()` connects the
+four-ledger metadata reconciler to the persistent aggregate history ledger. It
+requires the inventory, observer receipt, binding receipt, availability, and
+recovery-readiness history interfaces. It first obtains a stable four-ledger
+report, then records only the validated aggregate report.
+
+After the append, the service exports the bounded history snapshot and invokes
+the independent snapshot verifier. It compares the independent result with the
+ledger's own verification result and checks that the last persisted record
+matches the returned evaluation identifier, report digest, sequence,
+classification, blocker count, and aggregate report. The public result contains
+counts, status codes, the evaluation digest, and the verified chain head only.
+
+Both READY and NOT_READY evaluations are recorded. A NOT_READY report is never
+promoted. Exact timestamp/report replay remains idempotent. The result always
+preserves `artifact_bytes_verified=false`, `execution_authorized=false`,
+`automatic_dispatch=false`, and `automatic_retry=false`.
+
+A failure after the append but before independent readback is reported as a
+service error; the append-only record is not rolled back. The caller must inspect
+the history before retrying. This service verifies the current database
+connection; it does not claim a process restart. Restart verification remains
+a separate close/reopen operation using `recover_after_restart()`.
+
+The service is currently exercised with synthetic four-ledger reports and
+temporary SQLite databases in the company-only test workflow. It is not wired
+to a production backup database or external storage service.
