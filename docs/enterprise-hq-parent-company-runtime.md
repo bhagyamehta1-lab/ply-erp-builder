@@ -1153,3 +1153,46 @@ database or durable shared storage is connected.
 Run the focused suite with:
 
 \`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'\`
+
+
+## Persistent aggregate recovery-readiness history
+
+`scripts/enterprise_hq_backup_recovery_readiness_ledger.py` records bounded
+METADATA_ONLY readiness reports in a local append-only SQLite history. The
+ledger accepts an exact allowlist of aggregate counts, fixed status values,
+ordered blocker codes, and false authorization flags. It rejects backup IDs,
+file digests, paths, raw receipts, unexpected fields, unstable source snapshots,
+and reports that claim artifact-byte verification or execution authority.
+
+- reports are canonicalized and assigned deterministic digests and evaluation IDs;
+- an exact timestamp/report replay is idempotent, while a later evaluation is
+  a new history entry;
+- every entry is linked to its predecessor by a SHA-256 record chain;
+- immutable-record triggers reject ordinary UPDATE and DELETE operations;
+- a separately persisted sequence and chain-head checkpoint detects history
+  tail truncation when the record table is shortened independently;
+- the history is bounded at 512 evaluations and rejects clock rollback;
+- `recover_after_restart()` reopens no external service and verifies the
+  persisted chain before returning aggregate recovery status;
+- the snapshot export contains only the bounded readiness report and integrity
+  metadata; no backup identifiers, file digests, filesystem paths, or source
+  receipt payloads are stored.
+
+`scripts/enterprise_hq_backup_recovery_readiness_snapshot.py` independently
+recomputes each report digest, deterministic evaluation ID, canonical UTC
+timestamp, record hash, sequence, and predecessor link. The verifier does not
+import the SQLite ledger implementation and returns aggregate counts only.
+
+This is local integrity and restart verification, not authenticated provenance,
+tamper-proof external anchoring, physical backup validation, or off-host
+durability. The persisted sequence/head checkpoint detects accidental or
+partial tail truncation when the checkpoint remains intact; an attacker able to
+rewrite both the database history and its checkpoint is outside this local
+hash-chain trust model. No live company backup database is connected, and the
+observer workflow uses temporary synthetic databases only.
+
+Run the focused suites with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_ledger.py'`
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_snapshot.py'`

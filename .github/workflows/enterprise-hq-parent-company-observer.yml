@@ -113,6 +113,10 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_predecessor_availability.py'
       - name: Test aggregate backup recovery readiness
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'
+      - name: Test persistent aggregate recovery-readiness history
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_ledger.py'
+      - name: Test independent recovery-readiness history snapshot
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_snapshot.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
