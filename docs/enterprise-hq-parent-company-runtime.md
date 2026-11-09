@@ -1316,3 +1316,31 @@ tests. Production storage is not connected.
 Run the focused suite with:
 
 python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_interruption.py'
+
+
+## Recovery-readiness SQLite crash-point verification
+
+`tests/test_enterprise_hq_backup_recovery_readiness_crash_points.py` injects
+deterministic failures at the readiness-history write boundaries:
+
+- before the record insert;
+- immediately after the record insert;
+- immediately after the state-checkpoint update;
+- when SQLite commit fails before committing;
+- after SQLite commits but the caller loses the commit acknowledgement.
+
+For failures before a successful commit, the test reopens the database through
+the read-only interruption reconciler and verifies that neither the record nor
+the sequence/chain-head checkpoint advanced. When the commit succeeded but its
+acknowledgement was lost, reconciliation reports COMMITTED; an exact replay is
+then verified as idempotent and the history remains at one record.
+
+These tests exercise SQLite transaction and acknowledgement boundaries using
+synthetic local databases. They do not simulate operating-system process
+termination, host failure, power loss, filesystem corruption, or off-host
+durability. The reconciler remains read-only and never retries automatically.
+No production database or external storage is connected.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_crash_points.py'`
