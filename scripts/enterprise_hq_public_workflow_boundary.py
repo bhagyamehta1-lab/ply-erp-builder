@@ -34,7 +34,10 @@ SIGNALS = {
     ),
     "privileged_capability": re.compile(
         r"(?im)^\s*(?:models:\s*read|"
-        r"(?:actions|contents|id-token|packages):\s*write)\s*$"
+        r"(?:actions|attestations|checks|contents|deployments|discussions|"
+        r"id-token|issues|models|packages|pages|pull-requests|repository-projects|"
+        r"security-events|statuses|vulnerability-alerts):\s*write|"
+        r"permissions:\s*write-all)\s*$"
     ),
     "observer_boundary_overlap": re.compile(
         r"(?i)(?:scripts/enterprise_hq_company_observer\.py|"

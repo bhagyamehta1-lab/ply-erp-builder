@@ -106,6 +106,22 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
+    def test_classifies_extended_write_permission(self):
+        root = self.fixture({"legacy.yml": "permissions:\n  pull-requests: write\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_classifies_write_all_permission(self):
+        root = self.fixture({"legacy.yml": "permissions: write-all\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_does_not_classify_read_all_permission_as_privileged(self):
+        root = self.fixture({"general.yml": "permissions: read-all\n"})
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 0)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+
     def test_counts_multiple_restriction_signals_without_exposing_content(self):
         root = self.fixture({
             "legacy.yml": (
