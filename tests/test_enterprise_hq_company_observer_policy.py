@@ -366,8 +366,8 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_missing_recovery_readiness_restart_suite(self):
         step = (
-            "      - name: Test close-reopen recovery-readiness restart adapter\\n"
-            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_restart.py'\\n"
+            "      - name: Test close-reopen recovery-readiness restart adapter\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_restart.py'\n"
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
