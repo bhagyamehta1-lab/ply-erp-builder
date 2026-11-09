@@ -373,5 +373,19 @@ class BackupArtifactBindingTests(unittest.TestCase):
         self.assertFalse(result["artifact_bytes_verified"])
 
 
+    def test_association_commitments_are_domain_separated_and_stable(self):
+        result = self.verify()
+        expected_inventory = hashlib.sha256(
+            ("enterprise-hq-backup-association:v1:inventory:" + self.inventory_id).encode("ascii")
+        ).hexdigest()
+        expected_observer = hashlib.sha256(
+            ("enterprise-hq-backup-association:v1:observer:" + self.receipt["backup_id"]).encode("ascii")
+        ).hexdigest()
+        self.assertEqual(result["inventory_association_digest"], expected_inventory)
+        self.assertEqual(result["observer_association_digest"], expected_observer)
+        self.assertNotEqual(expected_inventory, expected_observer)
+        self.assertNotIn(self.inventory_id, repr(result))
+        self.assertNotIn(self.receipt["backup_id"], repr(result))
+
 if __name__ == "__main__":
     unittest.main()

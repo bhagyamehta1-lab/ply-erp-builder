@@ -38,6 +38,8 @@ class BackupArtifactBindingLedgerTests(unittest.TestCase):
             "binding_status": "METADATA_ASSOCIATION_VERIFIED",
             "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
             "binding_digest": digest or hashlib.sha256(b"binding-one").hexdigest(),
+            "inventory_association_digest": "1" * 64,
+            "observer_association_digest": "2" * 64,
             "inventory_record_count": 3,
             "inventory_generation": 2,
             "observer_backup_sequence": 4,
@@ -281,6 +283,8 @@ class BackupArtifactBindingLedgerTests(unittest.TestCase):
     def test_nonzero_authorization_storage_is_detected(self):
         row = {
             "binding_digest": "a" * 64,
+            "inventory_association_digest": "1" * 64,
+            "observer_association_digest": "2" * 64,
             "binding_status": "METADATA_ASSOCIATION_VERIFIED",
             "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
             "inventory_record_count": 1,
@@ -311,6 +315,58 @@ class BackupArtifactBindingLedgerTests(unittest.TestCase):
         self.assertFalse(receipt["automatic_dispatch"])
         self.assertFalse(receipt["automatic_retry"])
 
+
+    def test_invalid_association_digest_is_rejected(self):
+        with self.assertRaisesRegex(
+            BackupArtifactBindingLedgerError, "ASSOCIATION_DIGEST_INVALID"
+        ):
+            self.append(self.result(inventory_association_digest="not-a-digest"))
+
+    def test_conflicting_inventory_to_observer_mapping_is_rejected(self):
+        self.append()
+        conflict = self.result(
+            hashlib.sha256(b"binding-conflict-inventory").hexdigest(),
+            observer_association_digest="3" * 64,
+        )
+        with self.assertRaisesRegex(
+            BackupArtifactBindingLedgerError, "ASSOCIATION_CONFLICT"
+        ):
+            self.append(conflict, seconds=1)
+        self.assertEqual(self.ledger.verify()["receipt_count"], 1)
+
+    def test_conflicting_observer_to_inventory_mapping_is_rejected(self):
+        self.append()
+        conflict = self.result(
+            hashlib.sha256(b"binding-conflict-observer").hexdigest(),
+            inventory_association_digest="4" * 64,
+        )
+        with self.assertRaisesRegex(
+            BackupArtifactBindingLedgerError, "ASSOCIATION_CONFLICT"
+        ):
+            self.append(conflict, seconds=1)
+        self.assertEqual(self.ledger.verify()["receipt_count"], 1)
+
+    def test_same_association_can_be_reverified_with_new_evidence_digest(self):
+        self.append()
+        replayed_evidence = self.result(
+            hashlib.sha256(b"binding-reverified").hexdigest(),
+            availability_observation_sequence=8,
+        )
+        second = self.append(replayed_evidence, seconds=1)
+        self.assertEqual(second["sequence"], 2)
+        summary = self.ledger.verify()
+        self.assertEqual(summary["receipt_count"], 2)
+        self.assertEqual(summary["association_pair_count"], 1)
+        self.assertTrue(summary["association_conflict_free"])
+
+    def test_missing_conflict_trigger_is_rejected(self):
+        self.ledger._connection.execute(
+            f"DROP TRIGGER {ledger_module._CONFLICT_TRIGGER}"
+        )
+        with self.assertRaisesRegex(
+            BackupArtifactBindingLedgerCorruptionError, "TRIGGER_SET_INVALID"
+        ):
+            self.ledger.verify()
 
 if __name__ == "__main__":
     unittest.main()

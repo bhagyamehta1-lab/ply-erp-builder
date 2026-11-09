@@ -50,6 +50,8 @@ class BackupArtifactBindingServiceTests(unittest.TestCase):
             "binding_status": "METADATA_ASSOCIATION_VERIFIED",
             "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
             "binding_digest": hashlib.sha256(b"verified-binding").hexdigest(),
+            "inventory_association_digest": "1" * 64,
+            "observer_association_digest": "2" * 64,
             "inventory_record_count": 3,
             "inventory_generation": 2,
             "observer_backup_sequence": 4,
@@ -346,6 +348,24 @@ class BackupArtifactBindingServiceTests(unittest.TestCase):
                     )
         self.assertEqual(self.ledger.verify()["receipt_count"], 1)
 
+
+    def test_conflicting_association_is_rejected_before_second_receipt(self):
+        self.run_service(recorded_at=self.at())
+        conflict = self.verified_result(
+            binding_digest=hashlib.sha256(b"conflicting-binding").hexdigest(),
+            observer_association_digest="3" * 64,
+        )
+        with patch.object(
+            service_module, "verify_backup_artifact_binding", return_value=conflict
+        ):
+            with self.assertRaisesRegex(
+                BackupArtifactBindingServiceError, "APPEND_REJECTED"
+            ):
+                verify_and_record_backup_artifact_binding(
+                    self.inventory, self.receipts, self.availability,
+                    self.binding, self.ledger, recorded_at=self.at(1),
+                )
+        self.assertEqual(self.ledger.verify()["receipt_count"], 1)
 
 if __name__ == "__main__":
     unittest.main()

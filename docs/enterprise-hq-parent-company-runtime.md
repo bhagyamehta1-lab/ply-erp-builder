@@ -941,9 +941,10 @@ append-only receipt for a successful explicit metadata association.
 
 - accepts only the exact successful result from
   `verify_backup_artifact_binding()`;
-- stores an opaque receipt ID, binding digest, bounded generation/sequence
-  counts, status classifications, UTC recording time, predecessor hash, and
-  receipt hash;
+- stores an opaque receipt ID, binding digest, domain-separated SHA-256
+  commitments for the inventory and observer identities, bounded
+  generation/sequence counts, status classifications, UTC recording time,
+  predecessor hash, and receipt hash;
 - deliberately omits inventory IDs, observer backup IDs, file digests,
   filesystem paths, source timestamps, and raw payloads;
 - is idempotent by binding digest and rejects conflicting metadata for a
@@ -951,6 +952,9 @@ append-only receipt for a successful explicit metadata association.
 - independently verifies canonical metadata, deterministic receipt IDs,
   monotonic timestamps, sequence continuity, schema constraints, SQLite
   integrity, append-only triggers, and the SHA-256 receipt chain;
+- rejects a previously recorded inventory identity paired with a different
+  observer identity, and rejects an observer identity paired with a different
+  inventory identity; repeated verification of the same pair remains allowed;
 - supports aggregate-only lookup, bounded enumeration, and read-only restart
   recovery;
 - rejects symlinked or permissively readable database files and enforces
@@ -958,10 +962,14 @@ append-only receipt for a successful explicit metadata association.
 - keeps artifact-byte verification, execution authorization, automatic
   dispatch, and automatic retry false.
 
-The ledger persists only metadata association evidence. It does not establish
-byte equivalence between the inventory artifact and observer backup, does not
-read or copy artifacts, and does not provide off-host durability or keyed
-provenance. It is exercised with temporary test databases only.
+The ledger persists only metadata association evidence. Schema 1.1.0 adds
+domain-separated identity commitments and a conflict-rejection trigger; older
+schema 1.0.0 databases are rejected rather than silently migrated. The current
+test/runtime lane uses temporary databases only, so no deployed database is
+migrated. The commitments are unkeyed hashes of high-entropy opaque identifiers,
+not authenticated provenance. The ledger does not establish byte equivalence
+between the inventory artifact and observer backup, does not read or copy
+artifacts, and does not provide off-host durability.
 
 Run the focused suite with:
 

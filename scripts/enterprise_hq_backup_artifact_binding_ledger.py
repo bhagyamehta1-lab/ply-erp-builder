@@ -16,17 +16,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections.abc import Mapping
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 MAX_BINDING_RECEIPTS = 512
 MAX_DATABASE_BYTES = 1024 * 1024
 MAX_RECORDED_AT_CHARS = 64
 _TABLE = "backup_artifact_binding_receipts"
 _UPDATE_TRIGGER = "backup_artifact_binding_receipts_no_update"
 _DELETE_TRIGGER = "backup_artifact_binding_receipts_no_delete"
+_CONFLICT_TRIGGER = "backup_artifact_binding_receipts_no_conflicting_association"
 _HEX_64 = re.compile(r"^[a-f0-9]{64}$")
 _RECEIPT_ID = re.compile(r"^hqbr_[a-f0-9]{24}$")
 _INPUT_FIELDS = frozenset({
     "status", "binding_status", "binding_basis", "binding_digest",
+    "inventory_association_digest", "observer_association_digest",
     "inventory_record_count", "inventory_generation",
     "observer_backup_sequence", "availability_observation_sequence",
     "availability", "inventory_artifact_presence", "artifact_bytes_verified",
@@ -36,6 +38,8 @@ _COLUMNS = (
     ("sequence", "INTEGER", 0, 1),
     ("receipt_id", "TEXT", 1, 0),
     ("binding_digest", "TEXT", 1, 0),
+    ("inventory_association_digest", "TEXT", 1, 0),
+    ("observer_association_digest", "TEXT", 1, 0),
     ("binding_status", "TEXT", 1, 0),
     ("binding_basis", "TEXT", 1, 0),
     ("inventory_record_count", "INTEGER", 1, 0),
@@ -56,6 +60,8 @@ _CREATE_TABLE = """CREATE TABLE backup_artifact_binding_receipts (
     sequence INTEGER PRIMARY KEY CHECK (sequence BETWEEN 1 AND 512),
     receipt_id TEXT NOT NULL UNIQUE,
     binding_digest TEXT NOT NULL UNIQUE,
+    inventory_association_digest TEXT NOT NULL CHECK (length(inventory_association_digest) = 64),
+    observer_association_digest TEXT NOT NULL CHECK (length(observer_association_digest) = 64),
     binding_status TEXT NOT NULL CHECK (binding_status = 'METADATA_ASSOCIATION_VERIFIED'),
     binding_basis TEXT NOT NULL CHECK (binding_basis = 'EXPLICIT_CALLER_ASSOCIATION'),
     inventory_record_count INTEGER NOT NULL CHECK (inventory_record_count BETWEEN 1 AND 256),
@@ -78,6 +84,18 @@ BEGIN SELECT RAISE(ABORT, 'BACKUP_ARTIFACT_BINDING_RECEIPT_APPEND_ONLY'); END"""
 _CREATE_DELETE_TRIGGER = """CREATE TRIGGER backup_artifact_binding_receipts_no_delete
 BEFORE DELETE ON backup_artifact_binding_receipts
 BEGIN SELECT RAISE(ABORT, 'BACKUP_ARTIFACT_BINDING_RECEIPT_APPEND_ONLY'); END"""
+_CREATE_CONFLICT_TRIGGER = """CREATE TRIGGER backup_artifact_binding_receipts_no_conflicting_association
+BEFORE INSERT ON backup_artifact_binding_receipts
+WHEN EXISTS (
+    SELECT 1 FROM backup_artifact_binding_receipts
+    WHERE inventory_association_digest = NEW.inventory_association_digest
+      AND observer_association_digest <> NEW.observer_association_digest
+) OR EXISTS (
+    SELECT 1 FROM backup_artifact_binding_receipts
+    WHERE observer_association_digest = NEW.observer_association_digest
+      AND inventory_association_digest <> NEW.inventory_association_digest
+)
+BEGIN SELECT RAISE(ABORT, 'BACKUP_ARTIFACT_BINDING_ASSOCIATION_CONFLICT'); END"""
 
 
 class BackupArtifactBindingLedgerError(ValueError):
@@ -136,13 +154,21 @@ def _normalize_binding(result: Mapping) -> dict:
     digest = result.get("binding_digest")
     if not isinstance(digest, str) or not _HEX_64.fullmatch(digest):
         _fail("BACKUP_ARTIFACT_BINDING_RECEIPT_DIGEST_INVALID")
+    association_digests = {}
+    for field in ("inventory_association_digest", "observer_association_digest"):
+        value = result.get(field)
+        if not isinstance(value, str) or not _HEX_64.fullmatch(value):
+            _fail("BACKUP_ARTIFACT_BINDING_RECEIPT_ASSOCIATION_DIGEST_INVALID")
+        association_digests[field] = value
+    if association_digests["inventory_association_digest"] == association_digests["observer_association_digest"]:
+        _fail("BACKUP_ARTIFACT_BINDING_RECEIPT_ASSOCIATION_DIGEST_INVALID")
     bounds = {
         "inventory_record_count": (1, 256),
         "inventory_generation": (1, 256),
         "observer_backup_sequence": (1, 256),
         "availability_observation_sequence": (1, 512),
     }
-    normalized = {"binding_digest": digest}
+    normalized = {"binding_digest": digest, **association_digests}
     for field, (minimum, maximum) in bounds.items():
         value = result.get(field)
         if type(value) is not int or not minimum <= value <= maximum:
@@ -220,7 +246,8 @@ class BackupArtifactBindingLedger:
             self._connection.execute("PRAGMA max_page_count=256")
             if self._memory or not existed:
                 self._connection.executescript(
-                    _CREATE_TABLE + ";" + _CREATE_UPDATE_TRIGGER + ";" + _CREATE_DELETE_TRIGGER + ";"
+                    _CREATE_TABLE + ";" + _CREATE_UPDATE_TRIGGER + ";" + _CREATE_DELETE_TRIGGER
+                    + ";" + _CREATE_CONFLICT_TRIGGER + ";"
                 )
             if path is not None and not existed:
                 os.chmod(path, 0o600)
@@ -274,14 +301,17 @@ class BackupArtifactBindingLedger:
                 "SELECT name, sql FROM sqlite_master WHERE type='trigger'"
             )
         }
-        if set(triggers) != {_UPDATE_TRIGGER, _DELETE_TRIGGER}:
+        expected_triggers = {
+            _UPDATE_TRIGGER: _CREATE_UPDATE_TRIGGER,
+            _DELETE_TRIGGER: _CREATE_DELETE_TRIGGER,
+            _CONFLICT_TRIGGER: _CREATE_CONFLICT_TRIGGER,
+        }
+        if set(triggers) != set(expected_triggers):
             _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_TRIGGER_SET_INVALID")
-        for name, required in (
-            (_UPDATE_TRIGGER, "BEFORE UPDATE ON " + _TABLE),
-            (_DELETE_TRIGGER, "BEFORE DELETE ON " + _TABLE),
-        ):
-            sql = " ".join((triggers[name] or "").upper().split())
-            if required.upper() not in sql or "RAISE(ABORT" not in sql:
+        for name, expected_sql in expected_triggers.items():
+            actual = " ".join((triggers[name] or "").upper().split())
+            expected = " ".join(expected_sql.upper().split())
+            if actual != expected:
                 _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_TRIGGER_INVALID")
         custom_indexes = self._connection.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
@@ -299,6 +329,8 @@ class BackupArtifactBindingLedger:
                 _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_AUTHORIZATION_INVALID")
         return {
             "binding_digest": row["binding_digest"],
+            "inventory_association_digest": row["inventory_association_digest"],
+            "observer_association_digest": row["observer_association_digest"],
             "binding_status": row["binding_status"],
             "binding_basis": row["binding_basis"],
             "inventory_record_count": row["inventory_record_count"],
@@ -350,6 +382,18 @@ class BackupArtifactBindingLedger:
                     _fail("BACKUP_ARTIFACT_BINDING_RECEIPT_CONFLICT")
                 self._connection.commit()
                 return self._response(existing, created=False, replayed=True)
+            conflicting_inventory = self._connection.execute(
+                f"SELECT 1 FROM {_TABLE} WHERE inventory_association_digest = ? "
+                "AND observer_association_digest <> ? LIMIT 1",
+                (metadata["inventory_association_digest"], metadata["observer_association_digest"]),
+            ).fetchone()
+            conflicting_observer = self._connection.execute(
+                f"SELECT 1 FROM {_TABLE} WHERE observer_association_digest = ? "
+                "AND inventory_association_digest <> ? LIMIT 1",
+                (metadata["observer_association_digest"], metadata["inventory_association_digest"]),
+            ).fetchone()
+            if conflicting_inventory is not None or conflicting_observer is not None:
+                _fail("BACKUP_ARTIFACT_BINDING_RECEIPT_ASSOCIATION_CONFLICT")
             previous = self._connection.execute(
                 f"SELECT sequence, record_hash, recorded_at FROM {_TABLE} ORDER BY sequence DESC LIMIT 1"
             ).fetchone()
@@ -365,15 +409,17 @@ class BackupArtifactBindingLedger:
             record_hash = _digest(body)
             self._connection.execute(
                 f"""INSERT INTO {_TABLE} (
-                    sequence, receipt_id, binding_digest, binding_status, binding_basis,
+                    sequence, receipt_id, binding_digest, inventory_association_digest,
+                    observer_association_digest, binding_status, binding_basis,
                     inventory_record_count, inventory_generation, observer_backup_sequence,
                     availability_observation_sequence, availability, inventory_artifact_presence,
                     artifact_bytes_verified, execution_authorized, automatic_dispatch,
                     automatic_retry, recorded_at, previous_hash, record_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    sequence, receipt_id, metadata["binding_digest"], metadata["binding_status"],
-                    metadata["binding_basis"], metadata["inventory_record_count"],
+                    sequence, receipt_id, metadata["binding_digest"],
+                    metadata["inventory_association_digest"], metadata["observer_association_digest"],
+                    metadata["binding_status"], metadata["binding_basis"], metadata["inventory_record_count"],
                     metadata["inventory_generation"], metadata["observer_backup_sequence"],
                     metadata["availability_observation_sequence"], metadata["availability"],
                     metadata["inventory_artifact_presence"], 0, 0, 0, 0,
@@ -398,6 +444,9 @@ class BackupArtifactBindingLedger:
             _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_CAPACITY_EXCEEDED")
         previous_hash = None
         previous_at = None
+        inventory_to_observer = {}
+        observer_to_inventory = {}
+        association_pairs = set()
         for expected_sequence, row in enumerate(rows, 1):
             if row["sequence"] != expected_sequence:
                 _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_SEQUENCE_INVALID")
@@ -410,6 +459,19 @@ class BackupArtifactBindingLedger:
                 recorded_at = _normalize_recorded_at(row["recorded_at"])
             except BackupArtifactBindingLedgerError:
                 _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_METADATA_INVALID")
+            inventory_key = normalized["inventory_association_digest"]
+            observer_key = normalized["observer_association_digest"]
+            if (
+                inventory_key in inventory_to_observer
+                and inventory_to_observer[inventory_key] != observer_key
+            ) or (
+                observer_key in observer_to_inventory
+                and observer_to_inventory[observer_key] != inventory_key
+            ):
+                _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_ASSOCIATION_CONFLICT")
+            inventory_to_observer[inventory_key] = observer_key
+            observer_to_inventory[observer_key] = inventory_key
+            association_pairs.add((inventory_key, observer_key))
             if recorded_at != row["recorded_at"]:
                 _corrupt("BACKUP_ARTIFACT_BINDING_RECEIPT_TIME_INVALID")
             if previous_at is not None and recorded_at < previous_at:
@@ -431,6 +493,11 @@ class BackupArtifactBindingLedger:
             "receipt_count": len(rows),
             "last_sequence": len(rows) if rows else None,
             "chain_head_hash": previous_hash,
+            "inventory_association_count": len(inventory_to_observer),
+            "observer_association_count": len(observer_to_inventory),
+            "association_pair_count": len(association_pairs),
+            "association_conflict_count": 0,
+            "association_conflict_free": True,
             "execution_authorized": False,
             "automatic_dispatch": False,
             "automatic_retry": False,

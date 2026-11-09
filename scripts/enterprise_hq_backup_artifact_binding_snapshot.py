@@ -13,7 +13,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 MAX_RECEIPTS = 512
 MAX_RECORDED_AT_CHARS = 64
 _HEX_64 = re.compile(r"^[a-f0-9]{64}$")
@@ -24,6 +24,7 @@ _SNAPSHOT_FIELDS = frozenset({
 })
 _RECORD_FIELDS = frozenset({
     "schema_version", "sequence", "receipt_id", "binding_digest",
+    "inventory_association_digest", "observer_association_digest",
     "binding_status", "binding_basis", "inventory_record_count",
     "inventory_generation", "observer_backup_sequence",
     "availability_observation_sequence", "availability",
@@ -105,6 +106,9 @@ def verify_backup_artifact_binding_receipt_snapshot(snapshot: Mapping) -> dict:
     previous_at = None
     seen_digests = set()
     seen_ids = set()
+    inventory_to_observer = {}
+    observer_to_inventory = {}
+    association_pairs = set()
     for expected_sequence, record in enumerate(records, 1):
         if not isinstance(record, Mapping) or set(record) != _RECORD_FIELDS:
             _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_RECORD_SCHEMA_INVALID")
@@ -127,6 +131,14 @@ def verify_backup_artifact_binding_receipt_snapshot(snapshot: Mapping) -> dict:
             _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_DUPLICATE_RECEIPT")
         seen_digests.add(binding_digest)
         seen_ids.add(receipt_id)
+        inventory_key = record.get("inventory_association_digest")
+        observer_key = record.get("observer_association_digest")
+        if (
+            not isinstance(inventory_key, str) or not _HEX_64.fullmatch(inventory_key)
+            or not isinstance(observer_key, str) or not _HEX_64.fullmatch(observer_key)
+            or inventory_key == observer_key
+        ):
+            _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_ASSOCIATION_DIGEST_INVALID")
 
         if (
             record.get("binding_status") != "METADATA_ASSOCIATION_VERIFIED"
@@ -167,6 +179,19 @@ def verify_backup_artifact_binding_receipt_snapshot(snapshot: Mapping) -> dict:
         body = {key: value for key, value in record.items() if key != "record_hash"}
         if _digest(body) != record_hash:
             _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_RECORD_HASH_MISMATCH")
+        if (
+            inventory_key in inventory_to_observer
+            and inventory_to_observer[inventory_key] != observer_key
+        ):
+            _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_INVENTORY_ASSOCIATION_CONFLICT")
+        if (
+            observer_key in observer_to_inventory
+            and observer_to_inventory[observer_key] != inventory_key
+        ):
+            _fail("BACKUP_ARTIFACT_BINDING_SNAPSHOT_OBSERVER_ASSOCIATION_CONFLICT")
+        inventory_to_observer[inventory_key] = observer_key
+        observer_to_inventory[observer_key] = inventory_key
+        association_pairs.add((inventory_key, observer_key))
         previous_hash = record_hash
         previous_at = recorded_at
 
@@ -175,6 +200,11 @@ def verify_backup_artifact_binding_receipt_snapshot(snapshot: Mapping) -> dict:
         "receipt_count": count,
         "last_sequence": count if count else None,
         "chain_head_hash": previous_hash,
+        "inventory_association_count": len(inventory_to_observer),
+        "observer_association_count": len(observer_to_inventory),
+        "association_pair_count": len(association_pairs),
+        "association_conflict_count": 0,
+        "association_conflict_free": True,
         "independent_hash_verification": True,
         "execution_authorized": False,
         "automatic_dispatch": False,

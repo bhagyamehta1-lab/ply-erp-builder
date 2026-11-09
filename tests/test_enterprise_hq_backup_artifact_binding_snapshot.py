@@ -29,13 +29,22 @@ def receipt_id(binding_digest):
     ).hexdigest()[:24]
 
 
-def make_record(sequence=1, binding_digest=None, previous_hash=None, recorded_at=None):
+def make_record(
+    sequence=1, binding_digest=None, previous_hash=None, recorded_at=None,
+    inventory_association_digest=None, observer_association_digest=None,
+):
     digest = binding_digest or hashlib.sha256(f"binding-{sequence}".encode()).hexdigest()
     body = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "sequence": sequence,
         "receipt_id": receipt_id(digest),
         "binding_digest": digest,
+        "inventory_association_digest": inventory_association_digest or hashlib.sha256(
+            f"inventory-{sequence}".encode("ascii")
+        ).hexdigest(),
+        "observer_association_digest": observer_association_digest or hashlib.sha256(
+            f"observer-{sequence}".encode("ascii")
+        ).hexdigest(),
         "binding_status": "METADATA_ASSOCIATION_VERIFIED",
         "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
         "inventory_record_count": 3,
@@ -58,7 +67,7 @@ def make_snapshot(records=None):
     rows = list(records or [])
     return {
         "status": "BACKUP_ARTIFACT_BINDING_RECEIPT_SNAPSHOT_EXPORTED",
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "receipt_count": len(rows),
         "records": rows,
         "execution_authorized": False,
@@ -99,8 +108,10 @@ class BackupArtifactBindingSnapshotTests(unittest.TestCase):
         result = self.verify(make_snapshot([make_record()]))
         self.assertEqual(set(result), {
             "status", "receipt_count", "last_sequence", "chain_head_hash",
-            "independent_hash_verification", "execution_authorized",
-            "automatic_dispatch", "automatic_retry",
+            "inventory_association_count", "observer_association_count",
+            "association_pair_count", "association_conflict_count",
+            "association_conflict_free", "independent_hash_verification",
+            "execution_authorized", "automatic_dispatch", "automatic_retry",
         })
 
     def test_rejects_extra_snapshot_field(self):
@@ -314,6 +325,61 @@ class BackupArtifactBindingSnapshotTests(unittest.TestCase):
             finally:
                 ledger.close()
 
+
+    def test_rejects_inventory_associated_with_multiple_observers(self):
+        first = make_record(
+            1, inventory_association_digest="a" * 64,
+            observer_association_digest="b" * 64,
+        )
+        second = make_record(
+            2, previous_hash=first["record_hash"],
+            recorded_at="2026-11-09T04:00:03.000000Z",
+            inventory_association_digest="a" * 64,
+            observer_association_digest="c" * 64,
+        )
+        self.reject(
+            make_snapshot([first, second]),
+            "INVENTORY_ASSOCIATION_CONFLICT",
+        )
+
+    def test_rejects_observer_associated_with_multiple_inventories(self):
+        first = make_record(
+            1, inventory_association_digest="a" * 64,
+            observer_association_digest="b" * 64,
+        )
+        second = make_record(
+            2, previous_hash=first["record_hash"],
+            recorded_at="2026-11-09T04:00:03.000000Z",
+            inventory_association_digest="c" * 64,
+            observer_association_digest="b" * 64,
+        )
+        self.reject(
+            make_snapshot([first, second]),
+            "OBSERVER_ASSOCIATION_CONFLICT",
+        )
+
+    def test_allows_reverification_of_the_same_association(self):
+        first = make_record(
+            1, inventory_association_digest="a" * 64,
+            observer_association_digest="b" * 64,
+        )
+        second = make_record(
+            2, previous_hash=first["record_hash"],
+            recorded_at="2026-11-09T04:00:03.000000Z",
+            inventory_association_digest="a" * 64,
+            observer_association_digest="b" * 64,
+        )
+        result = self.verify(make_snapshot([first, second]))
+        self.assertEqual(result["inventory_association_count"], 1)
+        self.assertEqual(result["observer_association_count"], 1)
+        self.assertEqual(result["association_pair_count"], 1)
+        self.assertEqual(result["association_conflict_count"], 0)
+        self.assertTrue(result["association_conflict_free"])
+
+    def test_rejects_malformed_association_digest(self):
+        record = make_record()
+        record["inventory_association_digest"] = "not-a-digest"
+        self.reject(make_snapshot([record]), "ASSOCIATION_DIGEST_INVALID")
 
 if __name__ == "__main__":
     unittest.main()

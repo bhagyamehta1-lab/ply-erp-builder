@@ -52,6 +52,11 @@ def _digest(value) -> str:
     return hashlib.sha256(_canonical(value).encode("ascii")).hexdigest()
 
 
+def _association_digest(kind: str, identifier: str) -> str:
+    material = f"enterprise-hq-backup-association:v1:{kind}:{identifier}".encode("ascii")
+    return hashlib.sha256(material).hexdigest()
+
+
 def verify_backup_artifact_binding(
     inventory: LedgerBackupInventory,
     receipt_ledger: ObserverFreshnessBackupReceiptLedger,
@@ -172,9 +177,15 @@ def verify_backup_artifact_binding(
     ):
         _fail("BACKUP_ARTIFACT_BINDING_AVAILABILITY_EVIDENCE_MISMATCH")
 
+    inventory_association_digest = _association_digest("inventory", inventory_id)
+    observer_association_digest = _association_digest("observer", observer_id)
     core = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
+        "association_commitments": {
+            "inventory": inventory_association_digest,
+            "observer": observer_association_digest,
+        },
         "inventory": {
             "backup_id": inventory_id,
             "ledger_type": inventory_record["ledger_type"],
@@ -212,6 +223,8 @@ def verify_backup_artifact_binding(
         "status": "BACKUP_ARTIFACT_BINDING_VERIFIED",
         "binding_status": "METADATA_ASSOCIATION_VERIFIED",
         "binding_basis": "EXPLICIT_CALLER_ASSOCIATION",
+        "inventory_association_digest": inventory_association_digest,
+        "observer_association_digest": observer_association_digest,
         "binding_digest": _digest(core),
         "inventory_record_count": inventory_after["backup_inventory_count"],
         "inventory_generation": inventory_record["generation"],
