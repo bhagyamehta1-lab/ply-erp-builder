@@ -111,6 +111,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_generation_continuity.py'
       - name: Test backup predecessor availability
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_predecessor_availability.py'
+      - name: Test aggregate backup recovery readiness
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

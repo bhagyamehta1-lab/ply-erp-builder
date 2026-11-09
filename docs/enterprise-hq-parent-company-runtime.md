@@ -1112,3 +1112,44 @@ read-only metadata check, not a production restore or off-host durability claim.
 Run the focused suite with:
 
 \`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_predecessor_availability.py'\`
+
+
+## Aggregate backup recovery readiness
+
+\`scripts/enterprise_hq_backup_recovery_readiness.py\` provides a bounded caller
+adapter and aggregate-only readiness report over the four existing local ledgers:
+backup inventory, observer backup receipts, binding receipts, and availability
+history.
+
+- the adapter always supplies all four ledgers to
+  \`reconcile_backup_generation_continuity()\`; an omitted availability ledger is
+  rejected rather than silently treating predecessor checks as complete;
+- the underlying continuity reconciler verifies each source ledger before and
+  after metadata enumeration and rejects a changed snapshot;
+- the readiness summarizer requires exactly four successful source-ledger
+  verifications, complete inventory/observer association coverage, matching
+  receipt and observation totals, zero orphan/missing/unknown/mismatched
+  availability evidence, and a COMPLETE recovery-chain result;
+- predecessor availability must be VERIFIED when predecessor links exist;
+  a single genesis backup may report NOT_APPLICABLE because it has no predecessor;
+- empty histories, partial associations, unavailable backups, and incomplete
+  predecessor evidence return NOT_READY with stable blocker codes;
+- unexpected fields, inconsistent counters, unverified source integrity,
+  unstable snapshots, or any execution/dispatch/retry authorization claim fail
+  closed;
+- output contains aggregate counts and fixed status codes only; no backup IDs,
+  file digests, filesystem paths, source timestamps, or receipt payloads are
+  returned.
+
+A READY result is strictly METADATA_ONLY. It confirms that the four local
+metadata ledgers agree and that their recorded availability observations report
+the complete chain as available. It does not read original backup bytes, prove
+byte equivalence, authenticate a producer, demonstrate an actual restore, or
+provide off-host durability. Artifact-byte verification and all execution,
+dispatch, and automatic-retry flags remain false. The current test workflow
+uses synthetic fixtures and temporary local databases; no live company backup
+database or durable shared storage is connected.
+
+Run the focused suite with:
+
+\`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'\`
