@@ -523,6 +523,57 @@ class LedgerBackupInventory(EvidenceVerificationLedger):
             self._connection.rollback()
             raise
 
+    def list_backup_metadata(self) -> list[dict]:
+        """Return a stable, bounded metadata-only snapshot of every inventory row."""
+        if self._connection is None:
+            raise BackupInventoryError("BACKUP_INVENTORY_LEDGER_CLOSED")
+        try:
+            self._connection.execute("BEGIN")
+            self.verify()
+            rows = self._connection.execute(
+                """SELECT backup_id, ledger_type, source_snapshot_digest,
+                          restored_snapshot_digest, audit_chain_count,
+                          declared_size_bytes, created_at, retain_until,
+                          generation, predecessor_backup_id, storage_scope,
+                          restore_status, artifact_presence, entry_digest
+                   FROM ledger_backup_inventory
+                   ORDER BY ledger_type, generation"""
+            ).fetchall()
+            if len(rows) > MAX_BACKUP_INVENTORY_RECORDS:
+                raise BackupInventoryCorruptionError(
+                    "BACKUP_INVENTORY_CAPACITY_INVARIANT_FAILED"
+                )
+            result = [
+                {
+                    "status": "BACKUP_METADATA_FOUND",
+                    "backup_id": row["backup_id"],
+                    "ledger_type": row["ledger_type"],
+                    "source_snapshot_digest": row["source_snapshot_digest"],
+                    "restored_snapshot_digest": row["restored_snapshot_digest"],
+                    "audit_chain_count": row["audit_chain_count"],
+                    "declared_size_bytes": row["declared_size_bytes"],
+                    "created_at": row["created_at"],
+                    "retain_until": row["retain_until"],
+                    "generation": row["generation"],
+                    "predecessor_backup_id": row["predecessor_backup_id"],
+                    "storage_scope": row["storage_scope"],
+                    "restore_status": row["restore_status"],
+                    "artifact_presence": row["artifact_presence"],
+                    "entry_digest": row["entry_digest"],
+                    "artifact_bytes_verified": False,
+                    "execution_authorized": False,
+                    "automatic_dispatch": False,
+                    "automatic_retry": False,
+                }
+                for row in rows
+            ]
+            self._connection.commit()
+            return result
+        except Exception:
+            self._connection.rollback()
+            raise
+
+
     def verify(self) -> dict:
         """Verify inherited ledgers, backup metadata, lineage, and its audit chain."""
         base = super().verify()
