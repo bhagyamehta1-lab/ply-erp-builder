@@ -248,6 +248,13 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
                 ).fetchone()[0]
                 if "ledger_backup_recovery_readiness_records" in names else None
             )
+            records = (
+                tuple(connection.execute(
+                    "SELECT sequence, evaluation_id, record_hash "
+                    "FROM ledger_backup_recovery_readiness_records ORDER BY sequence"
+                ).fetchall())
+                if "ledger_backup_recovery_readiness_records" in names else None
+            )
             journal_mode = connection.execute(
                 "PRAGMA journal_mode"
             ).fetchone()[0]
@@ -256,6 +263,7 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
                 "metadata": metadata,
                 "state": state,
                 "record_count": record_count,
+                "records": records,
                 "journal_mode": journal_mode,
             }
         finally:
@@ -276,6 +284,14 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
             self.assertEqual(mode.lower(), "wal")
         finally:
             connection.close()
+
+    def _assert_schema_invalid_without_mutation(self, database):
+        before = self._snapshot(database)
+        with self.assertRaisesRegex(
+            BackupRecoveryReadinessLedgerError, "SCHEMA_INVALID"
+        ):
+            BackupRecoveryReadinessLedger(str(database))
+        self.assertEqual(self._snapshot(database), before)
 
     def test_partial_schema_is_rejected_without_repair_or_journal_change(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -430,6 +446,110 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
             self.assertEqual(after["journal_mode"], "wal")
             self.assertEqual(verification["record_count"], 1)
             self.assertEqual(verification["last_sequence"], 1)
+
+
+    def test_same_name_noop_immutability_trigger_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "noop-trigger.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "DROP TRIGGER ledger_backup_recovery_readiness_no_update"
+                )
+                connection.execute(
+                    "CREATE TRIGGER ledger_backup_recovery_readiness_no_update "
+                    "BEFORE UPDATE ON ledger_backup_recovery_readiness_records "
+                    "BEGIN SELECT 1; END"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self._assert_schema_invalid_without_mutation(database)
+
+    def test_same_name_misdirected_history_index_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "wrong-index.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "DROP INDEX ledger_backup_recovery_readiness_time_idx"
+                )
+                connection.execute(
+                    "CREATE INDEX ledger_backup_recovery_readiness_time_idx "
+                    "ON ledger_backup_recovery_readiness_records(sequence)"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self._assert_schema_invalid_without_mutation(database)
+
+    def test_same_name_table_with_weakened_checks_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "weakened-table.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "DROP TRIGGER ledger_backup_recovery_readiness_no_update"
+                )
+                connection.execute(
+                    "DROP TRIGGER ledger_backup_recovery_readiness_no_delete"
+                )
+                connection.execute(
+                    "DROP INDEX ledger_backup_recovery_readiness_time_idx"
+                )
+                connection.execute(
+                    "ALTER TABLE ledger_backup_recovery_readiness_records "
+                    "RENAME TO ledger_backup_recovery_readiness_records_legacy"
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE ledger_backup_recovery_readiness_records (
+                        sequence INTEGER PRIMARY KEY,
+                        evaluation_id TEXT NOT NULL UNIQUE,
+                        evaluated_at TEXT NOT NULL,
+                        report_digest TEXT NOT NULL,
+                        report_json TEXT NOT NULL,
+                        metadata_readiness TEXT NOT NULL,
+                        blocker_count INTEGER NOT NULL,
+                        previous_hash TEXT,
+                        record_hash TEXT NOT NULL UNIQUE
+                    )
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO ledger_backup_recovery_readiness_records "
+                    "SELECT sequence, evaluation_id, evaluated_at, report_digest, "
+                    "report_json, metadata_readiness, blocker_count, previous_hash, "
+                    "record_hash FROM ledger_backup_recovery_readiness_records_legacy"
+                )
+                connection.execute(
+                    "DROP TABLE ledger_backup_recovery_readiness_records_legacy"
+                )
+                connection.execute(
+                    "CREATE INDEX ledger_backup_recovery_readiness_time_idx "
+                    "ON ledger_backup_recovery_readiness_records(evaluated_at)"
+                )
+                connection.execute(
+                    "CREATE TRIGGER ledger_backup_recovery_readiness_no_update "
+                    "BEFORE UPDATE ON ledger_backup_recovery_readiness_records "
+                    "BEGIN SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE'); END"
+                )
+                connection.execute(
+                    "CREATE TRIGGER ledger_backup_recovery_readiness_no_delete "
+                    "BEFORE DELETE ON ledger_backup_recovery_readiness_records "
+                    "BEGIN SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE'); END"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            self._assert_schema_invalid_without_mutation(database)
+
 
 
 if __name__ == "__main__":

@@ -40,11 +40,73 @@ _SCHEMA_COLUMNS = {
 }
 
 
+_SCHEMA_SQL = {
+    ("table", "ledger_backup_recovery_readiness_meta"): """
+        CREATE TABLE ledger_backup_recovery_readiness_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """,
+    ("table", "ledger_backup_recovery_readiness_state"): """
+        CREATE TABLE ledger_backup_recovery_readiness_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_sequence INTEGER NOT NULL CHECK (last_sequence BETWEEN 0 AND 512),
+            chain_head_hash TEXT,
+            updated_at TEXT NOT NULL
+        )
+    """,
+    ("table", "ledger_backup_recovery_readiness_records"): """
+        CREATE TABLE ledger_backup_recovery_readiness_records (
+            sequence INTEGER PRIMARY KEY CHECK (sequence BETWEEN 1 AND 512),
+            evaluation_id TEXT NOT NULL UNIQUE,
+            evaluated_at TEXT NOT NULL,
+            report_digest TEXT NOT NULL,
+            report_json TEXT NOT NULL,
+            metadata_readiness TEXT NOT NULL
+                CHECK (metadata_readiness IN ('READY', 'NOT_READY')),
+            blocker_count INTEGER NOT NULL CHECK (blocker_count BETWEEN 0 AND 10),
+            previous_hash TEXT,
+            record_hash TEXT NOT NULL UNIQUE
+        )
+    """,
+    ("index", "ledger_backup_recovery_readiness_time_idx"): """
+        CREATE INDEX ledger_backup_recovery_readiness_time_idx
+        ON ledger_backup_recovery_readiness_records(evaluated_at)
+    """,
+    ("trigger", "ledger_backup_recovery_readiness_no_update"): """
+        CREATE TRIGGER ledger_backup_recovery_readiness_no_update
+        BEFORE UPDATE ON ledger_backup_recovery_readiness_records
+        BEGIN
+            SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
+        END
+    """,
+    ("trigger", "ledger_backup_recovery_readiness_no_delete"): """
+        CREATE TRIGGER ledger_backup_recovery_readiness_no_delete
+        BEFORE DELETE ON ledger_backup_recovery_readiness_records
+        BEGIN
+            SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
+        END
+    """,
+    ("trigger", "ledger_backup_recovery_readiness_state_no_delete"): """
+        CREATE TRIGGER ledger_backup_recovery_readiness_state_no_delete
+        BEFORE DELETE ON ledger_backup_recovery_readiness_state
+        BEGIN
+            SELECT RAISE(ABORT, 'READINESS_HISTORY_STATE_REQUIRED');
+        END
+    """,
+}
+
+
+def _normalize_schema_sql(sql: str | None) -> str:
+    """Normalize SQLite's stored DDL for deterministic schema comparison."""
+    return " ".join((sql or "").split()).casefold().rstrip(";")
+
+
 def _validate_existing_schema(connection, *, allow_empty: bool) -> bool:
     """Validate the complete on-disk schema without repairing or migrating it."""
     try:
         rows = connection.execute(
-            "SELECT type, name FROM sqlite_master "
+            "SELECT type, name, sql FROM sqlite_master "
             "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
         ).fetchall()
         objects = {(row["type"], row["name"]) for row in rows}
@@ -62,6 +124,19 @@ def _validate_existing_schema(connection, *, allow_empty: bool) -> bool:
     if objects != _SCHEMA_OBJECTS:
         raise BackupRecoveryReadinessLedgerError(
             "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_PARTIAL"
+        )
+
+    actual_schema_sql = {
+        (row["type"], row["name"]): _normalize_schema_sql(row["sql"])
+        for row in rows
+    }
+    expected_schema_sql = {
+        key: _normalize_schema_sql(value)
+        for key, value in _SCHEMA_SQL.items()
+    }
+    if actual_schema_sql != expected_schema_sql:
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
         )
 
     try:
