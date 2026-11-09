@@ -37,7 +37,11 @@ SIGNALS = {
         r"(?:actions|attestations|checks|contents|deployments|discussions|"
         r"id-token|issues|models|packages|pages|pull-requests|repository-projects|"
         r"security-events|statuses|vulnerability-alerts):\s*write|"
-        r"permissions:\s*write-all)\s*$"
+        r"permissions:\s*write-all(?:\s+#.*)?|"
+        r"permissions:\s*\{[^}\n]*[\"']?(?:actions|attestations|checks|contents|"
+        r"deployments|discussions|id-token|issues|models|packages|pages|"
+        r"pull-requests|repository-projects|security-events|statuses|"
+        r"vulnerability-alerts)[\"']?\s*:\s*write[^}\n]*\})\s*$"
     ),
     "observer_boundary_overlap": re.compile(
         r"(?i)(?:scripts/enterprise_hq_company_observer\.py|"
