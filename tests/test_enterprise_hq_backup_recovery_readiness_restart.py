@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -359,6 +360,78 @@ class BackupRecoveryReadinessRestartTests(unittest.TestCase):
         second = self.run_once(minute=1)
         self.assertEqual(second["evaluation_count"], 2)
         self.assertEqual(second["sequence"], 2)
+
+
+    def _replace_restart_immutability_trigger_with_noop(self, ledger):
+        ledger._connection.execute(
+            "DROP TRIGGER ledger_backup_recovery_readiness_no_update"
+        )
+        ledger._connection.execute(
+            """
+            CREATE TRIGGER ledger_backup_recovery_readiness_no_update
+            BEFORE UPDATE ON ledger_backup_recovery_readiness_records
+            BEGIN
+                SELECT 1;
+            END
+            """
+        )
+
+    def test_restart_rejects_schema_drift_before_recovery_verification(self):
+        original = BackupRecoveryReadinessLedger.recover_after_restart
+
+        def tampered(ledger):
+            self._replace_restart_immutability_trigger_with_noop(ledger)
+            return original(ledger)
+
+        with patch.object(
+            BackupRecoveryReadinessLedger, "recover_after_restart", tampered
+        ):
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessRestartError,
+                "BACKUP_RECOVERY_READINESS_RESTART_RECOVERY_FAILED",
+            ):
+                self.run_once()
+
+        with sqlite3.connect(self.database) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM ledger_backup_recovery_readiness_records"
+            ).fetchone()[0]
+            trigger_sql = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name = 'ledger_backup_recovery_readiness_no_update'"
+            ).fetchone()[0]
+        self.assertEqual(count, 1)
+        self.assertIn("select 1", trigger_sql.casefold())
+
+    def test_restart_rechecks_schema_after_recovery_before_snapshot(self):
+        original = BackupRecoveryReadinessLedger.recover_after_restart
+
+        def recovered_then_tampered(ledger):
+            result = original(ledger)
+            self._replace_restart_immutability_trigger_with_noop(ledger)
+            return result
+
+        with patch.object(
+            BackupRecoveryReadinessLedger,
+            "recover_after_restart",
+            recovered_then_tampered,
+        ):
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessRestartError,
+                "BACKUP_RECOVERY_READINESS_RESTART_RECOVERY_FAILED",
+            ):
+                self.run_once()
+
+        with sqlite3.connect(self.database) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM ledger_backup_recovery_readiness_records"
+            ).fetchone()[0]
+            trigger_sql = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name = 'ledger_backup_recovery_readiness_no_update'"
+            ).fetchone()[0]
+        self.assertEqual(count, 1)
+        self.assertIn("select 1", trigger_sql.casefold())
 
 
 if __name__ == "__main__":
