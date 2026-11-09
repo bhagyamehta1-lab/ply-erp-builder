@@ -932,3 +932,37 @@ python -m unittest discover -s tests -p 'test_enterprise_hq_backup_availability_
 python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding.py'
 ```
 
+
+
+## Persistent backup-artifact binding receipt ledger
+
+`scripts/enterprise_hq_backup_artifact_binding_ledger.py` stores a bounded,
+append-only receipt for a successful explicit metadata association.
+
+- accepts only the exact successful result from
+  `verify_backup_artifact_binding()`;
+- stores an opaque receipt ID, binding digest, bounded generation/sequence
+  counts, status classifications, UTC recording time, predecessor hash, and
+  receipt hash;
+- deliberately omits inventory IDs, observer backup IDs, file digests,
+  filesystem paths, source timestamps, and raw payloads;
+- is idempotent by binding digest and rejects conflicting metadata for a
+  previously recorded digest;
+- independently verifies canonical metadata, deterministic receipt IDs,
+  monotonic timestamps, sequence continuity, schema constraints, SQLite
+  integrity, append-only triggers, and the SHA-256 receipt chain;
+- supports aggregate-only lookup, bounded enumeration, and read-only restart
+  recovery;
+- rejects symlinked or permissively readable database files and enforces
+  owner-only permissions, a 512-receipt bound, and a one-MiB database limit;
+- keeps artifact-byte verification, execution authorization, automatic
+  dispatch, and automatic retry false.
+
+The ledger persists only metadata association evidence. It does not establish
+byte equivalence between the inventory artifact and observer backup, does not
+read or copy artifacts, and does not provide off-host durability or keyed
+provenance. It is exercised with temporary test databases only.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_ledger.py'`
