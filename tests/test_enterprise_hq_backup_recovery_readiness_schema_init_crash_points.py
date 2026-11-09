@@ -329,11 +329,11 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
             self._create_valid_ledger(database, with_record=True)
             connection = sqlite3.connect(str(database))
             try:
+                connection.execute("PRAGMA journal_mode = WAL")
                 connection.execute(
                     "UPDATE ledger_backup_recovery_readiness_meta "
                     "SET value = '0.9.0' WHERE key = 'schema_version'"
                 )
-                connection.execute("PRAGMA journal_mode = WAL")
                 connection.commit()
             finally:
                 connection.close()
@@ -351,6 +351,7 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
             self._create_valid_ledger(database)
             connection = sqlite3.connect(str(database))
             try:
+                connection.execute("PRAGMA journal_mode = WAL")
                 connection.execute(
                     "DROP TRIGGER ledger_backup_recovery_readiness_state_no_delete"
                 )
@@ -362,7 +363,6 @@ class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
                     "BEFORE DELETE ON ledger_backup_recovery_readiness_state "
                     "BEGIN SELECT RAISE(ABORT, 'READINESS_HISTORY_STATE_REQUIRED'); END"
                 )
-                connection.execute("PRAGMA journal_mode = WAL")
                 connection.commit()
             finally:
                 connection.close()
