@@ -124,21 +124,21 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_inline_write_permission_mapping(self):
         root = self.fixture({
-            "legacy.yml": "permissions: { contents: read, pull-requests: write }\\n"
+            "legacy.yml": "permissions: { contents: read, pull-requests: write }\n"
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
     def test_classifies_quoted_inline_write_permission_mapping(self):
         root = self.fixture({
-            "legacy.yml": 'permissions: { "checks": write, contents: read }\\n'
+            "legacy.yml": 'permissions: { "checks": write, contents: read }\n'
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
     def test_does_not_classify_inline_read_only_permission_mapping(self):
         root = self.fixture({
-            "general.yml": "permissions: { contents: read, issues: read }\\n"
+            "general.yml": "permissions: { contents: read, issues: read }\n"
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 0)
@@ -146,7 +146,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_write_all_permission_with_comment(self):
         root = self.fixture({
-            "legacy.yml": "permissions: write-all # unrestricted\\n"
+            "legacy.yml": "permissions: write-all # unrestricted\n"
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
