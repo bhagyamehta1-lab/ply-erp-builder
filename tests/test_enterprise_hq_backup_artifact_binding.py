@@ -374,6 +374,7 @@ class BackupArtifactBindingTests(unittest.TestCase):
 
 
     def test_association_commitments_are_domain_separated_and_stable(self):
+        self.add_available()
         result = self.verify()
         expected_inventory = hashlib.sha256(
             ("enterprise-hq-backup-association:v1:inventory:" + self.inventory_id).encode("ascii")
