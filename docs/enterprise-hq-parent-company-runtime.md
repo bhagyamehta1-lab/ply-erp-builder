@@ -900,14 +900,35 @@ for every backup.
 A RECONCILED result means the two ledgers agree; it does not mean every artifact is
 available. Artifact availability is reported separately as ALL_AVAILABLE,
 PARTIAL_OR_UNAVAILABLE, or NO_BACKUPS. UNKNOWN observations remain incomplete until
-a later verified observation replaces them. This reconciler does not yet bind the
-separate metadata-only `LedgerBackupInventory` IDs to freshness-backup file digests;
-that inventory currently records `artifact_presence=NOT_INSPECTED` and needs an
-explicit artifact-digest contract before such a claim is possible.
+a later verified observation replaces them. The explicit association gap is addressed by
+`scripts/enterprise_hq_backup_artifact_binding.py`. Its
+`verify_backup_artifact_binding()` function requires the caller to supply the
+exact inventory backup ID and entry digest together with the observer backup ID
+and expected file SHA-256. It then independently verifies the inventory,
+freshness-backup receipt ledger, and availability ledger.
 
-Run the focused suite with:
+- requires a restore-equivalent, LOCAL_ONLY inventory record whose entry digest
+  matches the caller's explicit association;
+- requires the observer receipt's file digest to match the caller's expected
+  digest;
+- requires the latest observation to be AVAILABLE and to match the receipt's
+  lineage sequence, record hash, file digest, source counts, and source chain head;
+- re-verifies all three source ledgers after reading and fails closed if any
+  ledger snapshot changes;
+- returns a deterministic binding digest and bounded status metadata only;
+- performs no filesystem access, artifact reads, writes, restoration, retries,
+  or task dispatch.
+
+This is an explicit metadata association, not proof that the inventory artifact
+and observer backup are the same bytes. The inventory continues to report
+`artifact_presence=NOT_INSPECTED`; `artifact_bytes_verified=false` is
+preserved. The binding digest is unkeyed integrity metadata, not authenticated
+provenance. No paths or artifact payloads are stored or returned.
+
+Run the focused suites with:
 
 ```bash
 python -m unittest discover -s tests -p 'test_enterprise_hq_backup_availability_reconciliation.py'
+python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding.py'
 ```
 

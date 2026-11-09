@@ -99,6 +99,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_observer_freshness_backup_availability_ledger.py'
       - name: Test read-only backup availability reconciliation
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_availability_reconciliation.py'
+      - name: Test explicit backup artifact binding contract
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
