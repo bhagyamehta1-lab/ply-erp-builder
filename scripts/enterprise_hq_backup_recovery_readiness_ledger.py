@@ -244,8 +244,8 @@ class BackupRecoveryReadinessLedger:
                         )
                     _validate_existing_schema(self._connection, allow_empty=False)
                     self._connection.commit()
-                    if Path(self.database).exists():
-                        os.chmod(self.database, 0o600)
+                if Path(self.database).exists():
+                    os.chmod(self.database, 0o600)
         except Exception:
             connection = getattr(self, "_connection", None)
             if connection is not None:
