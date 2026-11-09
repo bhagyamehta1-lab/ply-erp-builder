@@ -18,6 +18,87 @@ from scripts.enterprise_hq_backup_recovery_readiness_snapshot import (
 MAX_RECOVERY_READINESS_EVALUATIONS = 512
 SCHEMA_VERSION = "1.0.0"
 
+_SCHEMA_OBJECTS = frozenset({
+    ("table", "ledger_backup_recovery_readiness_meta"),
+    ("table", "ledger_backup_recovery_readiness_state"),
+    ("table", "ledger_backup_recovery_readiness_records"),
+    ("index", "ledger_backup_recovery_readiness_time_idx"),
+    ("trigger", "ledger_backup_recovery_readiness_no_update"),
+    ("trigger", "ledger_backup_recovery_readiness_no_delete"),
+    ("trigger", "ledger_backup_recovery_readiness_state_no_delete"),
+})
+_SCHEMA_COLUMNS = {
+    "ledger_backup_recovery_readiness_meta": frozenset({"key", "value"}),
+    "ledger_backup_recovery_readiness_state": frozenset({
+        "id", "last_sequence", "chain_head_hash", "updated_at",
+    }),
+    "ledger_backup_recovery_readiness_records": frozenset({
+        "sequence", "evaluation_id", "evaluated_at", "report_digest",
+        "report_json", "metadata_readiness", "blocker_count",
+        "previous_hash", "record_hash",
+    }),
+}
+
+
+def _validate_existing_schema(connection, *, allow_empty: bool) -> bool:
+    """Validate the complete on-disk schema without repairing or migrating it."""
+    try:
+        rows = connection.execute(
+            "SELECT type, name FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+        ).fetchall()
+        objects = {(row["type"], row["name"]) for row in rows}
+    except sqlite3.Error:
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
+        ) from None
+
+    if not objects:
+        if allow_empty:
+            return False
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
+        )
+    if objects != _SCHEMA_OBJECTS:
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_PARTIAL"
+        )
+
+    try:
+        for table, expected_columns in _SCHEMA_COLUMNS.items():
+            actual_columns = {
+                row["name"]
+                for row in connection.execute(
+                    f"PRAGMA table_info('{table}')"
+                ).fetchall()
+            }
+            if actual_columns != expected_columns:
+                raise BackupRecoveryReadinessLedgerError(
+                    "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
+                )
+        version = connection.execute(
+            "SELECT value FROM ledger_backup_recovery_readiness_meta "
+            "WHERE key = 'schema_version'"
+        ).fetchone()
+        state = connection.execute(
+            "SELECT last_sequence, chain_head_hash FROM "
+            "ledger_backup_recovery_readiness_state WHERE id = 1"
+        ).fetchone()
+    except sqlite3.Error:
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
+        ) from None
+
+    if version is None or version["value"] != SCHEMA_VERSION:
+        raise BackupRecoveryReadinessLedgerError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_VERSION_UNSUPPORTED"
+        )
+    if state is None:
+        raise BackupRecoveryReadinessLedgerCorruptionError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_STATE_MISSING"
+        )
+    return True
+
 
 class BackupRecoveryReadinessLedgerError(ValueError):
     """A readiness-history write is invalid or outside its bounded contract."""
@@ -86,30 +167,7 @@ class BackupRecoveryReadinessLedger:
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
                 self._connection.execute("PRAGMA query_only = ON")
-                try:
-                    version = self._connection.execute(
-                        "SELECT value FROM ledger_backup_recovery_readiness_meta "
-                        "WHERE key = 'schema_version'"
-                    ).fetchone()
-                    state = self._connection.execute(
-                        "SELECT last_sequence, chain_head_hash FROM "
-                        "ledger_backup_recovery_readiness_state WHERE id = 1"
-                    ).fetchone()
-                    self._connection.execute(
-                        "SELECT sequence FROM ledger_backup_recovery_readiness_records LIMIT 0"
-                    )
-                except sqlite3.Error:
-                    raise BackupRecoveryReadinessLedgerError(
-                        "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_INVALID"
-                    ) from None
-                if version is None or version["value"] != SCHEMA_VERSION:
-                    raise BackupRecoveryReadinessLedgerError(
-                        "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_VERSION_UNSUPPORTED"
-                    )
-                if state is None:
-                    raise BackupRecoveryReadinessLedgerCorruptionError(
-                        "BACKUP_RECOVERY_READINESS_LEDGER_STATE_MISSING"
-                    )
+                _validate_existing_schema(self._connection, allow_empty=False)
             else:
                 self._connection = sqlite3.connect(
                     self.database, timeout=5, isolation_level=None,
@@ -118,72 +176,76 @@ class BackupRecoveryReadinessLedger:
                 self._connection.row_factory = sqlite3.Row
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
-                self._connection.execute("PRAGMA journal_mode = DELETE")
-                self._connection.executescript(
-                    """
-                    BEGIN IMMEDIATE;
-                    CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_meta (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_state (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        last_sequence INTEGER NOT NULL CHECK (last_sequence BETWEEN 0 AND 512),
-                        chain_head_hash TEXT,
-                        updated_at TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_records (
-                        sequence INTEGER PRIMARY KEY CHECK (sequence BETWEEN 1 AND 512),
-                        evaluation_id TEXT NOT NULL UNIQUE,
-                        evaluated_at TEXT NOT NULL,
-                        report_digest TEXT NOT NULL,
-                        report_json TEXT NOT NULL,
-                        metadata_readiness TEXT NOT NULL
-                            CHECK (metadata_readiness IN ('READY', 'NOT_READY')),
-                        blocker_count INTEGER NOT NULL CHECK (blocker_count BETWEEN 0 AND 10),
-                        previous_hash TEXT,
-                        record_hash TEXT NOT NULL UNIQUE
-                    );
-                    CREATE INDEX IF NOT EXISTS ledger_backup_recovery_readiness_time_idx
-                        ON ledger_backup_recovery_readiness_records(evaluated_at);
-                    CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_no_update
-                    BEFORE UPDATE ON ledger_backup_recovery_readiness_records
-                    BEGIN
-                        SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
-                    END;
-                    CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_no_delete
-                    BEFORE DELETE ON ledger_backup_recovery_readiness_records
-                    BEGIN
-                        SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
-                    END;
-                    CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_state_no_delete
-                    BEFORE DELETE ON ledger_backup_recovery_readiness_state
-                    BEGIN
-                        SELECT RAISE(ABORT, 'READINESS_HISTORY_STATE_REQUIRED');
-                    END;
-                    """
+                existing_schema = _validate_existing_schema(
+                    self._connection, allow_empty=True
                 )
-                self._connection.execute(
-                    "INSERT OR IGNORE INTO ledger_backup_recovery_readiness_meta(key, value) "
-                    "VALUES('schema_version', ?)",
-                    (SCHEMA_VERSION,),
-                )
-                self._connection.execute(
-                    "INSERT OR IGNORE INTO ledger_backup_recovery_readiness_state"
-                    "(id, last_sequence, chain_head_hash, updated_at) "
-                    "VALUES(1, 0, NULL, '1970-01-01T00:00:00.000000Z')"
-                )
-                version = self._connection.execute(
-                    "SELECT value FROM ledger_backup_recovery_readiness_meta "
-                    "WHERE key = 'schema_version'"
-                ).fetchone()
-                if version is None or version["value"] != SCHEMA_VERSION:
-                    raise BackupRecoveryReadinessLedgerError(
-                        "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_VERSION_UNSUPPORTED"
+                if not existing_schema:
+                    self._connection.executescript(
+                        """
+                        BEGIN IMMEDIATE;
+                        CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_meta (
+                            key TEXT PRIMARY KEY,
+                            value TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_state (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            last_sequence INTEGER NOT NULL CHECK (last_sequence BETWEEN 0 AND 512),
+                            chain_head_hash TEXT,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_records (
+                            sequence INTEGER PRIMARY KEY CHECK (sequence BETWEEN 1 AND 512),
+                            evaluation_id TEXT NOT NULL UNIQUE,
+                            evaluated_at TEXT NOT NULL,
+                            report_digest TEXT NOT NULL,
+                            report_json TEXT NOT NULL,
+                            metadata_readiness TEXT NOT NULL
+                                CHECK (metadata_readiness IN ('READY', 'NOT_READY')),
+                            blocker_count INTEGER NOT NULL CHECK (blocker_count BETWEEN 0 AND 10),
+                            previous_hash TEXT,
+                            record_hash TEXT NOT NULL UNIQUE
+                        );
+                        CREATE INDEX IF NOT EXISTS ledger_backup_recovery_readiness_time_idx
+                            ON ledger_backup_recovery_readiness_records(evaluated_at);
+                        CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_no_update
+                        BEFORE UPDATE ON ledger_backup_recovery_readiness_records
+                        BEGIN
+                            SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
+                        END;
+                        CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_no_delete
+                        BEFORE DELETE ON ledger_backup_recovery_readiness_records
+                        BEGIN
+                            SELECT RAISE(ABORT, 'READINESS_HISTORY_IMMUTABLE');
+                        END;
+                        CREATE TRIGGER IF NOT EXISTS ledger_backup_recovery_readiness_state_no_delete
+                        BEFORE DELETE ON ledger_backup_recovery_readiness_state
+                        BEGIN
+                            SELECT RAISE(ABORT, 'READINESS_HISTORY_STATE_REQUIRED');
+                        END;
+                        """
                     )
-                self._connection.commit()
-                if Path(self.database).exists():
-                    os.chmod(self.database, 0o600)
+                    self._connection.execute(
+                        "INSERT OR IGNORE INTO ledger_backup_recovery_readiness_meta(key, value) "
+                        "VALUES('schema_version', ?)",
+                        (SCHEMA_VERSION,),
+                    )
+                    self._connection.execute(
+                        "INSERT OR IGNORE INTO ledger_backup_recovery_readiness_state"
+                        "(id, last_sequence, chain_head_hash, updated_at) "
+                        "VALUES(1, 0, NULL, '1970-01-01T00:00:00.000000Z')"
+                    )
+                    version = self._connection.execute(
+                        "SELECT value FROM ledger_backup_recovery_readiness_meta "
+                        "WHERE key = 'schema_version'"
+                    ).fetchone()
+                    if version is None or version["value"] != SCHEMA_VERSION:
+                        raise BackupRecoveryReadinessLedgerError(
+                            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_VERSION_UNSUPPORTED"
+                        )
+                    _validate_existing_schema(self._connection, allow_empty=False)
+                    self._connection.commit()
+                    if Path(self.database).exists():
+                        os.chmod(self.database, 0o600)
         except Exception:
             connection = getattr(self, "_connection", None)
             if connection is not None:
