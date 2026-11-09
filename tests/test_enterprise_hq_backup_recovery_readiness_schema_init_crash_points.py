@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from scripts.enterprise_hq_backup_recovery_readiness_ledger import (
     BackupRecoveryReadinessLedger,
+    BackupRecoveryReadinessLedgerCorruptionError,
+    BackupRecoveryReadinessLedgerError,
 )
 
 
