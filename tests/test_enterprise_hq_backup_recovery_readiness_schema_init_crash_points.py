@@ -216,5 +216,221 @@ class RecoveryReadinessSchemaInitializationCrashTests(unittest.TestCase):
         self.assertEqual(second["chain_head_hash"], before["chain_head_hash"])
 
 
+
+class RecoveryReadinessSchemaCompatibilityTests(unittest.TestCase):
+    """Existing schemas must be validated, never silently repaired or migrated."""
+
+    def _snapshot(self, database):
+        connection = sqlite3.connect(str(database))
+        try:
+            objects = tuple(connection.execute(
+                "SELECT type, name, sql FROM sqlite_master "
+                "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+            ).fetchall())
+            names = {row[1] for row in objects}
+            metadata = (
+                tuple(connection.execute(
+                    "SELECT key, value FROM ledger_backup_recovery_readiness_meta "
+                    "ORDER BY key"
+                ).fetchall())
+                if "ledger_backup_recovery_readiness_meta" in names else None
+            )
+            state = (
+                tuple(connection.execute(
+                    "SELECT id, last_sequence, chain_head_hash, updated_at "
+                    "FROM ledger_backup_recovery_readiness_state ORDER BY id"
+                ).fetchall())
+                if "ledger_backup_recovery_readiness_state" in names else None
+            )
+            record_count = (
+                connection.execute(
+                    "SELECT COUNT(*) FROM ledger_backup_recovery_readiness_records"
+                ).fetchone()[0]
+                if "ledger_backup_recovery_readiness_records" in names else None
+            )
+            journal_mode = connection.execute(
+                "PRAGMA journal_mode"
+            ).fetchone()[0]
+            return {
+                "objects": objects,
+                "metadata": metadata,
+                "state": state,
+                "record_count": record_count,
+                "journal_mode": journal_mode,
+            }
+        finally:
+            connection.close()
+
+    def _create_valid_ledger(self, database, *, with_record=False):
+        with BackupRecoveryReadinessLedger(str(database)) as history:
+            if with_record:
+                history.record_readiness_report(
+                    ready_report(),
+                    now=datetime(2026, 11, 9, 19, 30, tzinfo=timezone.utc),
+                )
+
+    def _set_wal(self, database):
+        connection = sqlite3.connect(str(database))
+        try:
+            mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+            self.assertEqual(mode.lower(), "wal")
+        finally:
+            connection.close()
+
+    def test_partial_schema_is_rejected_without_repair_or_journal_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "partial.sqlite3"
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.execute(
+                    "CREATE TABLE ledger_backup_recovery_readiness_meta "
+                    "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO ledger_backup_recovery_readiness_meta(key, value) "
+                    "VALUES('schema_version', '1.0.0')"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerError, "SCHEMA_PARTIAL"
+            ):
+                BackupRecoveryReadinessLedger(str(database))
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_missing_guard_is_not_recreated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "missing-guard.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "DROP TRIGGER ledger_backup_recovery_readiness_no_update"
+                )
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerError, "SCHEMA_PARTIAL"
+            ):
+                BackupRecoveryReadinessLedger(str(database))
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_unsupported_schema_version_is_not_migrated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "unsupported-version.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "UPDATE ledger_backup_recovery_readiness_meta "
+                    "SET value = '0.9.0' WHERE key = 'schema_version'"
+                )
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerError, "SCHEMA_VERSION_UNSUPPORTED"
+            ):
+                BackupRecoveryReadinessLedger(str(database))
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_missing_initial_checkpoint_is_not_reseeded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "missing-state.sqlite3"
+            self._create_valid_ledger(database)
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "DROP TRIGGER ledger_backup_recovery_readiness_state_no_delete"
+                )
+                connection.execute(
+                    "DELETE FROM ledger_backup_recovery_readiness_state WHERE id = 1"
+                )
+                connection.execute(
+                    "CREATE TRIGGER ledger_backup_recovery_readiness_state_no_delete "
+                    "BEFORE DELETE ON ledger_backup_recovery_readiness_state "
+                    "BEGIN SELECT RAISE(ABORT, 'READINESS_HISTORY_STATE_REQUIRED'); END"
+                )
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerCorruptionError, "STATE_MISSING"
+            ):
+                BackupRecoveryReadinessLedger(str(database))
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_read_only_open_rejects_partial_schema_without_repair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "readonly-partial.sqlite3"
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "CREATE TABLE ledger_backup_recovery_readiness_meta "
+                    "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO ledger_backup_recovery_readiness_meta(key, value) "
+                    "VALUES('schema_version', '1.0.0')"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerError, "SCHEMA_PARTIAL"
+            ):
+                BackupRecoveryReadinessLedger(str(database), read_only=True)
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_unrelated_database_objects_are_not_adopted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "unrelated.sqlite3"
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute("CREATE TABLE unrelated_notes (value TEXT)")
+                connection.commit()
+            finally:
+                connection.close()
+
+            before = self._snapshot(database)
+            with self.assertRaisesRegex(
+                BackupRecoveryReadinessLedgerError, "SCHEMA_PARTIAL"
+            ):
+                BackupRecoveryReadinessLedger(str(database))
+            self.assertEqual(self._snapshot(database), before)
+
+    def test_existing_wal_schema_reopens_without_reconfiguration_or_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "existing-wal.sqlite3"
+            self._create_valid_ledger(database, with_record=True)
+            self._set_wal(database)
+            before = self._snapshot(database)
+
+            with BackupRecoveryReadinessLedger(str(database)) as history:
+                verification = history.verify()
+
+            after = self._snapshot(database)
+            self.assertEqual(after, before)
+            self.assertEqual(after["journal_mode"], "wal")
+            self.assertEqual(verification["record_count"], 1)
+            self.assertEqual(verification["last_sequence"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
