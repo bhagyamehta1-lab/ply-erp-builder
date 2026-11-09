@@ -192,8 +192,8 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_file_deletion(self):
         self.reject(observer=OBSERVER.replace(
-            '        args.output.write_text(rendered + "\\n", encoding="utf-8")',
-            '        args.output.write_text(rendered + "\\n", encoding="utf-8")\\n        args.output.unlink()', 1
+            '        args.output.write_text(rendered + "\n", encoding="utf-8")',
+            '        args.output.write_text(rendered + "\n", encoding="utf-8")\n        args.output.unlink()', 1
         ))
 
     def test_rejects_missing_artifact_validation_step(self):
@@ -382,8 +382,8 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_missing_recovery_readiness_crash_point_suite(self):
         step = (
-            "      - name: Test recovery-readiness SQLite crash points\\n"
-            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_crash_points.py'\\n"
+            "      - name: Test recovery-readiness SQLite crash points\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_crash_points.py'\n"
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
