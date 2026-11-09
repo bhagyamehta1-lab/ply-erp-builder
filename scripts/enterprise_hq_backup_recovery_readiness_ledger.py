@@ -385,59 +385,77 @@ class BackupRecoveryReadinessLedger:
     def __exit__(self, exc_type, exc, traceback):
         self.close()
 
-    def _snapshot(self) -> dict:
-        rows = self._connection.execute(
+    def _snapshot_rows(self):
+        """Read ordered history rows inside the caller's SQLite snapshot."""
+        return self._connection.execute(
             "SELECT sequence, evaluation_id, evaluated_at, report_digest, "
             "report_json, metadata_readiness, blocker_count, previous_hash, record_hash "
             "FROM ledger_backup_recovery_readiness_records ORDER BY sequence"
         ).fetchall()
-        state = self._connection.execute(
-            "SELECT last_sequence, chain_head_hash FROM "
-            "ledger_backup_recovery_readiness_state WHERE id = 1"
-        ).fetchone()
-        if state is None:
-            raise BackupRecoveryReadinessLedgerCorruptionError(
-                "BACKUP_RECOVERY_READINESS_LEDGER_STATE_MISSING"
-            )
-        records = []
-        for row in rows:
-            try:
-                report = json.loads(row["report_json"])
-            except (TypeError, ValueError):
+
+    def _snapshot(self) -> dict:
+        owns_read_transaction = not self._connection.in_transaction
+        if owns_read_transaction:
+            self._connection.execute("BEGIN")
+        try:
+            rows = self._snapshot_rows()
+            state = self._connection.execute(
+                "SELECT last_sequence, chain_head_hash FROM "
+                "ledger_backup_recovery_readiness_state WHERE id = 1"
+            ).fetchone()
+            if state is None:
                 raise BackupRecoveryReadinessLedgerCorruptionError(
-                    "BACKUP_RECOVERY_READINESS_LEDGER_REPORT_JSON_INVALID"
-                ) from None
-            if _canonical(report) != row["report_json"]:
-                raise BackupRecoveryReadinessLedgerCorruptionError(
-                    "BACKUP_RECOVERY_READINESS_LEDGER_REPORT_JSON_NONCANONICAL"
+                    "BACKUP_RECOVERY_READINESS_LEDGER_STATE_MISSING"
                 )
-            records.append({
+            records = []
+            for row in rows:
+                try:
+                    report = json.loads(row["report_json"])
+                except (TypeError, ValueError):
+                    raise BackupRecoveryReadinessLedgerCorruptionError(
+                        "BACKUP_RECOVERY_READINESS_LEDGER_REPORT_JSON_INVALID"
+                    ) from None
+                if _canonical(report) != row["report_json"]:
+                    raise BackupRecoveryReadinessLedgerCorruptionError(
+                        "BACKUP_RECOVERY_READINESS_LEDGER_REPORT_JSON_NONCANONICAL"
+                    )
+                records.append({
+                    "schema_version": SCHEMA_VERSION,
+                    "sequence": row["sequence"],
+                    "evaluation_id": row["evaluation_id"],
+                    "evaluated_at": row["evaluated_at"],
+                    "report_digest": row["report_digest"],
+                    "metadata_readiness": row["metadata_readiness"],
+                    "blocker_count": row["blocker_count"],
+                    "report": report,
+                    "previous_hash": row["previous_hash"],
+                    "record_hash": row["record_hash"],
+                })
+            expected_head = records[-1]["record_hash"] if records else None
+            if (
+                state["last_sequence"] != len(records)
+                or state["chain_head_hash"] != expected_head
+            ):
+                raise BackupRecoveryReadinessLedgerCorruptionError(
+                    "BACKUP_RECOVERY_READINESS_LEDGER_STATE_HEAD_MISMATCH"
+                )
+            snapshot = {
                 "schema_version": SCHEMA_VERSION,
-                "sequence": row["sequence"],
-                "evaluation_id": row["evaluation_id"],
-                "evaluated_at": row["evaluated_at"],
-                "report_digest": row["report_digest"],
-                "metadata_readiness": row["metadata_readiness"],
-                "blocker_count": row["blocker_count"],
-                "report": report,
-                "previous_hash": row["previous_hash"],
-                "record_hash": row["record_hash"],
-            })
-        expected_head = records[-1]["record_hash"] if records else None
-        if state["last_sequence"] != len(records) or state["chain_head_hash"] != expected_head:
-            raise BackupRecoveryReadinessLedgerCorruptionError(
-                "BACKUP_RECOVERY_READINESS_LEDGER_STATE_HEAD_MISMATCH"
-            )
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "schema_fingerprint": _schema_fingerprint(self._connection),
-            "record_count": len(records),
-            "records": records,
-            "artifact_bytes_verified": False,
-            "execution_authorized": False,
-            "automatic_dispatch": False,
-            "automatic_retry": False,
-        }
+                "schema_fingerprint": _schema_fingerprint(self._connection),
+                "record_count": len(records),
+                "records": records,
+                "artifact_bytes_verified": False,
+                "execution_authorized": False,
+                "automatic_dispatch": False,
+                "automatic_retry": False,
+            }
+            if owns_read_transaction:
+                self._connection.commit()
+            return snapshot
+        except Exception:
+            if owns_read_transaction and self._connection.in_transaction:
+                self._connection.rollback()
+            raise
 
     def export_verification_snapshot(self) -> dict:
         """Export only validated aggregate reports and their integrity chain."""
