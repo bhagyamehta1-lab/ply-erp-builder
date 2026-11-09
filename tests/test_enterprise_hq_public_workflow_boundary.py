@@ -116,6 +116,40 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
+    def test_classifies_quoted_block_write_permission(self):
+        root = self.fixture({
+            "legacy.yml": 'permissions:\n  "pull-requests": write # required\n'
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_classifies_multiline_flow_write_permission(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "permissions: {\n"
+                "  'security-events': write,\n"
+                "  contents: read\n"
+                "}\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_does_not_classify_quoted_read_permission_as_privileged(self):
+        root = self.fixture({
+            "general.yml": 'permissions:\n  "pull-requests": read\n'
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 0)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+
+    def test_classifies_quoted_write_all_permission(self):
+        root = self.fixture({
+            "legacy.yml": 'permissions: "write-all" # unrestricted\n'
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
     def test_does_not_classify_read_all_permission_as_privileged(self):
         root = self.fixture({"general.yml": "permissions: read-all\n"})
         result = self.audit(root)
