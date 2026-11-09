@@ -301,6 +301,27 @@ class BackupArtifactBindingServiceTests(unittest.TestCase):
         self.assertFalse(result["automatic_retry"])
         self.assertTrue(result["source_binding_verified"])
         self.assertTrue(result["receipt_readback_verified"])
+        self.assertTrue(result["independent_history_verified"])
+
+    def test_independent_snapshot_verifier_is_required(self):
+        with patch.object(
+            service_module, "verify_backup_artifact_binding_receipt_snapshot",
+            return_value={"status": "INVALID"},
+        ):
+            with self.assertRaisesRegex(
+                BackupArtifactBindingServiceError, "INDEPENDENT_HISTORY_MISMATCH"
+            ):
+                self.run_service(recorded_at=self.at())
+
+    def test_independent_snapshot_verifier_exception_fails_closed(self):
+        with patch.object(
+            service_module, "verify_backup_artifact_binding_receipt_snapshot",
+            side_effect=RuntimeError("simulated independent verifier failure"),
+        ):
+            with self.assertRaisesRegex(
+                BackupArtifactBindingServiceError, "INDEPENDENT_HISTORY_INVALID"
+            ):
+                self.run_service(recorded_at=self.at())
 
     def test_post_append_history_corruption_is_reported(self):
         original = self.ledger.verify

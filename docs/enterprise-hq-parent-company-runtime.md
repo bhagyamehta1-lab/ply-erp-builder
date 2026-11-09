@@ -998,3 +998,29 @@ Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_service.py'`
 
+
+
+## Independent backup-artifact binding receipt snapshot verification
+
+The persistent binding receipt ledger now exports a bounded verification snapshot
+containing only its canonical aggregate receipt fields, previous-hash links, and
+record hashes. The export is read from one SQLite read transaction and excludes
+source backup identifiers, file digests, filesystem paths, and artifact bytes.
+
+The separate `enterprise_hq_backup_artifact_binding_snapshot.py` verifier does
+not import the ledger implementation. It independently validates the snapshot
+schema, schema version, receipt count, deterministic receipt identifiers,
+unique binding digests, sequential numbering, canonical UTC timestamps,
+monotonic time, authorization invariants, previous-hash continuity, and every
+record SHA-256 digest.
+
+The binding service now requires agreement between the ledger's own full-history
+verification and this independent snapshot verifier before returning success.
+A mismatch or verifier error fails closed. The returned result contains only
+aggregate counts and boolean verification status.
+
+This remains a local integrity check, not authenticated provenance or off-host
+durability. The snapshot does not prove artifact-byte equivalence; inventory
+artifact presence remains `NOT_INSPECTED` and `artifact_bytes_verified`
+remains false. The verifier does not authorize execution, dispatch, retry,
+restoration, or external actions.

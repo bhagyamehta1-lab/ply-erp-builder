@@ -466,6 +466,43 @@ class BackupArtifactBindingLedger:
             self._connection.rollback()
             raise
 
+    def export_verification_snapshot(self) -> dict:
+        """Export a bounded, metadata-only snapshot for an independent verifier.
+
+        The snapshot contains canonical receipt fields and hash-chain links, but
+        never source backup identifiers, file digests, paths, or artifact bytes.
+        A read transaction keeps the exported rows on one consistent snapshot.
+        """
+        self._connection.execute("BEGIN")
+        try:
+            self.verify()
+            rows = self._connection.execute(
+                f"SELECT * FROM {_TABLE} ORDER BY sequence"
+            ).fetchall()
+            records = []
+            for row in rows:
+                body = _record_body(
+                    row["sequence"],
+                    row["receipt_id"],
+                    self._metadata_from_row(row),
+                    row["recorded_at"],
+                    row["previous_hash"],
+                )
+                records.append({**body, "record_hash": row["record_hash"]})
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+        return {
+            "status": "BACKUP_ARTIFACT_BINDING_RECEIPT_SNAPSHOT_EXPORTED",
+            "schema_version": SCHEMA_VERSION,
+            "receipt_count": len(records),
+            "records": records,
+            "execution_authorized": False,
+            "automatic_dispatch": False,
+            "automatic_retry": False,
+        }
+
     def recover_after_restart(self) -> dict:
         """Verify persisted receipt history without resuming or dispatching work."""
         summary = self.verify()

@@ -165,6 +165,8 @@ def _validate_workflow(text):
         _fail("OBSERVER_POLICY_BACKUP_ARTIFACT_BINDING_LEDGER_TEST_MISSING")
     if "test_enterprise_hq_backup_artifact_binding_service.py" not in tests:
         _fail("OBSERVER_POLICY_BACKUP_ARTIFACT_BINDING_SERVICE_TEST_MISSING")
+    if "test_enterprise_hq_backup_artifact_binding_snapshot.py" not in tests:
+        _fail("OBSERVER_POLICY_BACKUP_ARTIFACT_BINDING_SNAPSHOT_TEST_MISSING")
     run_lines = [
         line.split("run:", 1)[1].strip()
         for line in text.splitlines() if re.match(r"^[ \t]+run:", line)

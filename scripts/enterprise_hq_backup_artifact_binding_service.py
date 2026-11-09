@@ -15,6 +15,9 @@ from scripts.enterprise_hq_backup_artifact_binding_ledger import (
     BackupArtifactBindingLedger,
     BackupArtifactBindingLedgerError,
 )
+from scripts.enterprise_hq_backup_artifact_binding_snapshot import (
+    verify_backup_artifact_binding_receipt_snapshot,
+)
 
 
 class BackupArtifactBindingServiceError(ValueError):
@@ -127,6 +130,27 @@ def verify_and_record_backup_artifact_binding(
     ):
         _fail("BACKUP_ARTIFACT_BINDING_SERVICE_CHAIN_HEAD_MISMATCH")
 
+    try:
+        snapshot = binding_ledger.export_verification_snapshot()
+        independent = verify_backup_artifact_binding_receipt_snapshot(snapshot)
+    except Exception as exc:
+        raise BackupArtifactBindingServiceError(
+            "BACKUP_ARTIFACT_BINDING_SERVICE_INDEPENDENT_HISTORY_INVALID"
+        ) from exc
+
+    if (
+        not isinstance(independent, Mapping)
+        or independent.get("status") != "BACKUP_ARTIFACT_BINDING_RECEIPT_SNAPSHOT_VERIFIED"
+        or independent.get("receipt_count") != after.get("receipt_count")
+        or independent.get("last_sequence") != after.get("last_sequence")
+        or independent.get("chain_head_hash") != after.get("chain_head_hash")
+        or independent.get("independent_hash_verification") is not True
+        or independent.get("execution_authorized") is not False
+        or independent.get("automatic_dispatch") is not False
+        or independent.get("automatic_retry") is not False
+    ):
+        _fail("BACKUP_ARTIFACT_BINDING_SERVICE_INDEPENDENT_HISTORY_MISMATCH")
+
     replayed = appended["status"] == "BACKUP_ARTIFACT_BINDING_RECEIPT_REPLAYED"
     return {
         "status": (
@@ -141,6 +165,7 @@ def verify_and_record_backup_artifact_binding(
         "source_binding_verified": True,
         "receipt_history_verified": True,
         "receipt_readback_verified": True,
+        "independent_history_verified": True,
         "availability": "AVAILABLE",
         "inventory_artifact_presence": "NOT_INSPECTED",
         "artifact_bytes_verified": False,
