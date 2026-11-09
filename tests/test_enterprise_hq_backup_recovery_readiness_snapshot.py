@@ -87,6 +87,7 @@ def make_snapshot(records=None):
     records = [] if records is None else records
     return {
         "schema_version": "1.0.0",
+        "schema_fingerprint": "bf38ee3acdf673e16b22eb1eb45a306a8622a5e043aa065cc60b73b700e9a9ec",
         "record_count": len(records),
         "records": records,
         "artifact_bytes_verified": False,
@@ -279,6 +280,17 @@ class BackupRecoveryReadinessSnapshotTests(unittest.TestCase):
         report = not_ready_report()
         report["recovery_chain_status"] = "MAYBE"
         value = make_snapshot([make_record(1, report, self.first)])
+        self.reject(value)
+
+
+    def test_rejects_missing_schema_fingerprint(self):
+        value = make_snapshot()
+        del value["schema_fingerprint"]
+        self.reject(value)
+
+    def test_rejects_schema_fingerprint_mismatch(self):
+        value = make_snapshot()
+        value["schema_fingerprint"] = "0" * 64
         self.reject(value)
 
 

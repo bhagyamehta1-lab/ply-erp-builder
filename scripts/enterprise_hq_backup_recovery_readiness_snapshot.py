@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 MAX_RECOVERY_READINESS_EVALUATIONS = 512
 SCHEMA_VERSION = "1.0.0"
 _HEX_64 = re.compile(r"^[a-f0-9]{64}$")
+_EXPECTED_SCHEMA_FINGERPRINT = "bf38ee3acdf673e16b22eb1eb45a306a8622a5e043aa065cc60b73b700e9a9ec"
 _EVALUATION_ID = re.compile(r"^hqrr_[a-f0-9]{24}$")
 _BLOCKER_ORDER = (
     "NO_BACKUP_EVIDENCE",
@@ -43,8 +44,9 @@ _COUNT_LIMITS = {
     "source_ledger_verification_count": 4,
 }
 _SNAPSHOT_FIELDS = frozenset({
-    "schema_version", "record_count", "records", "artifact_bytes_verified",
-    "execution_authorized", "automatic_dispatch", "automatic_retry",
+    "schema_version", "schema_fingerprint", "record_count", "records",
+    "artifact_bytes_verified", "execution_authorized", "automatic_dispatch",
+    "automatic_retry",
 })
 _RECORD_FIELDS = frozenset({
     "schema_version", "sequence", "evaluation_id", "evaluated_at",
@@ -213,6 +215,13 @@ def verify_backup_recovery_readiness_snapshot(snapshot: Mapping) -> dict:
         _fail("BACKUP_RECOVERY_READINESS_SNAPSHOT_SCHEMA_INVALID")
     if snapshot["schema_version"] != SCHEMA_VERSION:
         _fail("BACKUP_RECOVERY_READINESS_SNAPSHOT_VERSION_INVALID")
+    fingerprint = snapshot["schema_fingerprint"]
+    if (
+        not isinstance(fingerprint, str)
+        or not _HEX_64.fullmatch(fingerprint)
+        or fingerprint != _EXPECTED_SCHEMA_FINGERPRINT
+    ):
+        _fail("BACKUP_RECOVERY_READINESS_SNAPSHOT_SCHEMA_FINGERPRINT_INVALID")
     count = snapshot["record_count"]
     records = snapshot["records"]
     if type(count) is not int or not 0 <= count <= MAX_RECOVERY_READINESS_EVALUATIONS:

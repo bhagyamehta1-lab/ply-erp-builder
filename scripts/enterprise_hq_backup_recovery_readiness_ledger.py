@@ -1,6 +1,7 @@
 """Persistent aggregate-only history for Enterprise-HQ backup recovery readiness."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -100,6 +101,32 @@ _SCHEMA_SQL = {
 def _normalize_schema_sql(sql: str | None) -> str:
     """Normalize SQLite's stored DDL for deterministic schema comparison."""
     return " ".join((sql or "").split()).casefold().rstrip(";")
+
+
+def _schema_fingerprint(connection) -> str:
+    """Digest the exact normalized SQLite schema inventory for independent checks."""
+    try:
+        rows = connection.execute(
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+        ).fetchall()
+    except sqlite3.Error:
+        raise BackupRecoveryReadinessLedgerCorruptionError(
+            "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_READ_FAILED"
+        ) from None
+    manifest = [
+        {
+            "type": row["type"],
+            "name": row["name"],
+            "sql": _normalize_schema_sql(row["sql"]),
+        }
+        for row in rows
+    ]
+    payload = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _validate_existing_schema(connection, *, allow_empty: bool) -> bool:
@@ -403,6 +430,7 @@ class BackupRecoveryReadinessLedger:
             )
         return {
             "schema_version": SCHEMA_VERSION,
+            "schema_fingerprint": _schema_fingerprint(self._connection),
             "record_count": len(records),
             "records": records,
             "artifact_bytes_verified": False,

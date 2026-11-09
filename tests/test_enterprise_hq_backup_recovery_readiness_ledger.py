@@ -147,6 +147,29 @@ class BackupRecoveryReadinessLedgerTests(unittest.TestCase):
         self.assertNotIn("private_payload", rendered)
         self.assertFalse(snapshot["execution_authorized"])
 
+    def test_snapshot_binds_the_exact_schema_fingerprint(self):
+        snapshot = self.ledger.export_verification_snapshot()
+        self.assertEqual(
+            snapshot["schema_fingerprint"],
+            "bf38ee3acdf673e16b22eb1eb45a306a8622a5e043aa065cc60b73b700e9a9ec",
+        )
+        self.assertEqual(self.ledger.verify()["history_status"], "VALID")
+
+    def test_verify_detects_schema_definition_change_after_open(self):
+        self.ledger._connection.execute(
+            "DROP TRIGGER ledger_backup_recovery_readiness_no_update"
+        )
+        self.ledger._connection.execute(
+            "CREATE TRIGGER ledger_backup_recovery_readiness_no_update "
+            "BEFORE UPDATE ON ledger_backup_recovery_readiness_records "
+            "BEGIN SELECT 1; END"
+        )
+        with self.assertRaisesRegex(
+            BackupRecoveryReadinessLedgerCorruptionError,
+            "SCHEMA_FINGERPRINT_INVALID",
+        ):
+            self.ledger.verify()
+
     def test_rejects_extra_report_field(self):
         report = ready_report()
         report["backup_id"] = "raw-identifier"

@@ -1405,3 +1405,22 @@ Run the focused suite with:
 ```bash
 python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_schema_init_crash_points.py'
 ```
+
+## Independent recovery-readiness schema fingerprint
+
+The persistent recovery-readiness ledger now includes a SHA-256 fingerprint of
+the normalized seven-object SQLite schema in each verification snapshot. The
+independent snapshot verifier compares that fingerprint against its separately
+maintained expected schema fingerprint before accepting history records.
+
+This detects a schema-definition change that occurs after a ledger connection
+has opened, including a same-name replacement trigger or index. A mismatch is
+rejected as an invalid snapshot; the verifier does not repair the database,
+migrate it, or change its records.
+
+The fingerprint identifies the expected DDL contract. It is an unkeyed digest,
+not a signature or proof of origin. The underlying history remains local
+SQLite metadata, and this check does not establish off-host durability.
+
+Focused tests cover missing and mismatched fingerprints, the expected
+fingerprint on exported snapshots, and schema changes observed after opening.
