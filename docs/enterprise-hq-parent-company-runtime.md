@@ -1032,3 +1032,45 @@ durability. The snapshot does not prove artifact-byte equivalence; inventory
 artifact presence remains `NOT_INSPECTED` and `artifact_bytes_verified`
 remains false. The verifier does not authorize execution, dispatch, retry,
 restoration, or external actions.
+
+
+## Cross-ledger backup-generation continuity
+
+`scripts/enterprise_hq_backup_generation_continuity.py` correlates three
+already-verified local sources: the metadata-only backup inventory, observer
+freshness-backup lineage receipts, and persistent backup-artifact binding
+receipts.
+
+- `LedgerBackupInventory.list_backup_metadata()` exports a stable, bounded
+  metadata-only inventory snapshot with entry digests, generation numbers, and
+  predecessor references; it emits no filesystem paths or artifact payloads;
+- the continuity verifier independently recomputes each inventory entry digest
+  and checks per-ledger generation continuity from generation 1 through the
+  latest record, including exact predecessor references;
+- observer backup receipts are checked for sequential backup numbers,
+  file-digest-derived opaque IDs, source-summary consistency, and exact
+  predecessor links;
+- binding receipts are independently hash-verified by the separate binding
+  snapshot verifier, then matched to inventory and observer records using their
+  domain-separated identity commitments;
+- each binding's recorded inventory generation and observer backup sequence
+  must match the current source records; references to missing or conflicting
+  records fail closed;
+- unbound inventory or observer records are reported as NONE/PARTIAL coverage
+  rather than silently described as fully associated;
+- source-ledger summaries are compared before and after enumeration so a
+  concurrent append or changed chain head rejects the mixed snapshot;
+- the returned result contains aggregate counts and fixed non-authorization
+  flags only; source identifiers, entry digests, file digests, paths, and
+  receipt payloads are not returned.
+
+This is a deterministic metadata-lineage check over local ledger snapshots.
+It does not inspect backup files, prove byte equivalence, authenticate the
+producer, or provide off-host durability. The observer workflow runs only the
+synthetic regression suite; it does not create or retain these ledgers on the
+GitHub-hosted runner. No task is resumed, dispatched, restored, or authorized.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_generation_continuity.py'`
+
