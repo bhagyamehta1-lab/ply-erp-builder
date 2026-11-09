@@ -107,6 +107,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_service.py'
       - name: Test independent binding receipt snapshot verification
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_snapshot.py'
+      - name: Test cross-ledger backup generation continuity
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_generation_continuity.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}
