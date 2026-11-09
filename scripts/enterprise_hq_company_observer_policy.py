@@ -183,6 +183,8 @@ def _validate_workflow(text):
         _fail("OBSERVER_POLICY_BACKUP_RECOVERY_READINESS_TRANSITIONS_TEST_MISSING")
     if "test_enterprise_hq_backup_recovery_readiness_restart.py" not in tests:
         _fail("OBSERVER_POLICY_BACKUP_RECOVERY_READINESS_RESTART_TEST_MISSING")
+    if "test_enterprise_hq_backup_recovery_readiness_interruption.py" not in tests:
+        _fail("OBSERVER_POLICY_BACKUP_RECOVERY_READINESS_INTERRUPTION_TEST_MISSING")
     run_lines = [
         line.split("run:", 1)[1].strip()
         for line in text.splitlines() if re.match(r"^[ \t]+run:", line)

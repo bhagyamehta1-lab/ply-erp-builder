@@ -1284,3 +1284,35 @@ backup recovery.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_restart.py'`
+
+
+## Interrupted recovery-readiness append reconciliation
+
+The new interruption reconciliation module adds a read-only recovery path for
+an evaluation whose caller may have been interrupted around the SQLite commit
+boundary.
+
+The ledger supports an explicit read-only connection mode. It opens an existing
+database with SQLite mode=ro and query_only enabled, validates the schema
+without creating tables or changing permissions, and rejects all write
+transactions. The exact original report and timezone-aware timestamp are
+required to identify the deterministic evaluation key.
+
+The reconciliation operation opens only an existing file-backed history
+database in read-only mode, checks whether the exact report/timestamp evaluation
+is present, verifies the complete persistent history and state checkpoint,
+runs independent snapshot and transition verification, and cross-checks
+recovery counts, sequence and chain head.
+
+It reports COMMITTED when the exact append exists and NOT_COMMITTED when it
+does not. It never appends, retries, authorizes or dispatches work. A
+NOT_COMMITTED result requires manual review before any separate retry decision.
+
+Focused tests inject a rollback before commit and simulate a caller losing the
+result after a successful commit. These are deterministic SQLite fault
+simulations, not process-kill, host-crash, power-loss or off-host durability
+tests. Production storage is not connected.
+
+Run the focused suite with:
+
+python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_interruption.py'
