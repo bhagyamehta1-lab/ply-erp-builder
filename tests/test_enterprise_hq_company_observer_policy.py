@@ -330,8 +330,8 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
     def test_rejects_missing_backup_recovery_readiness_suite(self):
         step = (
-            "      - name: Test aggregate backup recovery readiness\\n"
-            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'\\n"
+            "      - name: Test aggregate backup recovery readiness\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness.py'\n"
         )
         self.reject(workflow=WORKFLOW.replace(step, "", 1))
 
