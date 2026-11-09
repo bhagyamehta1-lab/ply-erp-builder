@@ -17,6 +17,10 @@ from scripts.enterprise_hq_backup_artifact_binding_snapshot import (
     BackupArtifactBindingSnapshotError,
     verify_backup_artifact_binding_receipt_snapshot,
 )
+from scripts.enterprise_hq_backup_predecessor_availability import (
+    BackupPredecessorAvailabilityError,
+    verify_backup_predecessor_availability_snapshot,
+)
 
 MAX_INVENTORY_RECORDS = 256
 MAX_OBSERVER_BACKUPS = 256
@@ -295,6 +299,7 @@ def verify_backup_generation_continuity_snapshot(
     inventory_snapshot: Mapping,
     observer_snapshot: Mapping,
     binding_snapshot: Mapping,
+    availability_observations: list | None = None,
 ) -> dict:
     """Independently correlate verified source snapshots and binding receipts.
 
@@ -364,7 +369,7 @@ def verify_backup_generation_continuity_snapshot(
     else:
         coverage = "PARTIAL"
 
-    return {
+    result = {
         "status": "BACKUP_GENERATION_CONTINUITY_VERIFIED",
         "inventory_record_count": inventory_count,
         "inventory_ledger_type_count": ledger_type_count,
@@ -386,19 +391,42 @@ def verify_backup_generation_continuity_snapshot(
         "automatic_dispatch": False,
         "automatic_retry": False,
     }
+    if availability_observations is None:
+        result.update({
+            "availability_reconciliation_status": "NOT_CHECKED",
+            "predecessor_availability_status": "NOT_CHECKED",
+            "recovery_chain_status": "NOT_CHECKED",
+            "predecessor_link_count": None,
+            "predecessor_available_count": None,
+        })
+    else:
+        try:
+            result.update(
+                verify_backup_predecessor_availability_snapshot(
+                    observer_records, availability_observations
+                )
+            )
+        except BackupPredecessorAvailabilityError:
+            _fail("BACKUP_GENERATION_CONTINUITY_PREDECESSOR_AVAILABILITY_INVALID")
+        except Exception:
+            _fail("BACKUP_GENERATION_CONTINUITY_PREDECESSOR_AVAILABILITY_INVALID")
+    return result
 
 
 def reconcile_backup_generation_continuity(
     inventory,
     observer_receipt_ledger,
     binding_receipt_ledger,
+    availability_ledger=None,
 ) -> dict:
-    """Verify three local ledgers, correlate stable snapshots, and emit counts only."""
-    required = (
+    """Verify stable source ledgers and optionally require predecessor availability."""
+    required = [
         (inventory, ("verify", "list_backup_metadata")),
         (observer_receipt_ledger, ("verify", "list_backup_receipts")),
         (binding_receipt_ledger, ("verify", "export_verification_snapshot")),
-    )
+    ]
+    if availability_ledger is not None:
+        required.append((availability_ledger, ("verify", "list_latest_observations")))
     if any(
         any(not callable(getattr(obj, name, None)) for name in methods)
         for obj, methods in required
@@ -406,19 +434,15 @@ def reconcile_backup_generation_continuity(
         _fail("BACKUP_GENERATION_CONTINUITY_SOURCE_LEDGERS_REQUIRED")
 
     try:
-        before = (
-            inventory.verify(),
-            observer_receipt_ledger.verify(),
-            binding_receipt_ledger.verify(),
-        )
+        before = tuple(obj.verify() for obj, _ in required)
         inventory_records = inventory.list_backup_metadata()
         observer_records = observer_receipt_ledger.list_backup_receipts()
         binding_snapshot = binding_receipt_ledger.export_verification_snapshot()
-        after = (
-            inventory.verify(),
-            observer_receipt_ledger.verify(),
-            binding_receipt_ledger.verify(),
+        availability_observations = (
+            availability_ledger.list_latest_observations()
+            if availability_ledger is not None else None
         )
+        after = tuple(obj.verify() for obj, _ in required)
     except BackupGenerationContinuityError:
         raise
     except Exception:
@@ -447,12 +471,15 @@ def reconcile_backup_generation_continuity(
         "automatic_retry": False,
     }
     result = verify_backup_generation_continuity_snapshot(
-        inventory_snapshot, observer_snapshot, binding_snapshot
+        inventory_snapshot,
+        observer_snapshot,
+        binding_snapshot,
+        availability_observations,
     )
     return {
         **result,
         "source_snapshot_stable": True,
-        "source_ledger_verification_count": 3,
+        "source_ledger_verification_count": len(required),
     }
 
 

@@ -1074,3 +1074,41 @@ Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_generation_continuity.py'`
 
+
+
+## Backup predecessor availability verification
+
+\`scripts/enterprise_hq_backup_predecessor_availability.py\` verifies the latest
+availability evidence for every observer backup and, critically, every
+predecessor referenced by a later backup. It consumes only the bounded receipt
+list and the availability ledger's latest-observation snapshot.
+
+- observer receipt sequence, opaque backup identity, predecessor links, source
+  summary bounds, and non-authorization flags are checked before correlation;
+- each latest availability observation must have the exact bounded schema,
+  expected status, unique backup identity and observation sequence, and
+  non-authorization flags;
+- non-UNKNOWN observations must match the observer receipt's sequence and
+  record hash; AVAILABLE observations must also match the file digest and
+  source-chain summary;
+- a predecessor without an observation, with UNKNOWN/MISSING/UNAVAILABLE
+  status, or with mismatched lineage/evidence blocks recovery-chain readiness;
+- the result reports aggregate current-availability and predecessor counts,
+  with no backup IDs, file digests, paths, or raw evidence;
+- the verifier never reads backup bytes and keeps artifact-byte verification,
+  execution, dispatch, and automatic retry false.
+
+\`reconcile_backup_generation_continuity()\` accepts an optional fourth
+availability-ledger argument. When supplied, it verifies the ledger before and
+after reading latest observations and includes predecessor availability in the
+continuity result. Without that ledger, predecessor availability is explicitly
+reported as \`NOT_CHECKED\`; the function never implies a complete recovery chain.
+
+The latest-observation snapshot is correlated with receipt metadata after the
+availability ledger's own full-history hash-chain verifier runs. This does not
+replace that ledger verifier or prove physical artifact bytes. It is a local,
+read-only metadata check, not a production restore or off-host durability claim.
+
+Run the focused suite with:
+
+\`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_predecessor_availability.py'\`

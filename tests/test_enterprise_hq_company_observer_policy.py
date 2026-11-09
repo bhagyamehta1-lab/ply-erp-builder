@@ -321,5 +321,12 @@ class CompanyObserverPolicyTests(unittest.TestCase):
 
 
 
+    def test_rejects_missing_backup_predecessor_availability_suite(self):
+        step = (
+            "      - name: Test backup predecessor availability\n"
+            "        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_predecessor_availability.py'\n"
+        )
+        self.reject(workflow=WORKFLOW.replace(step, "", 1))
+
 if __name__ == "__main__":
     unittest.main()
