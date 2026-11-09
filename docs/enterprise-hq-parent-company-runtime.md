@@ -966,3 +966,35 @@ provenance. It is exercised with temporary test databases only.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_ledger.py'`
+
+## Verified backup-artifact binding receipt orchestration
+
+`scripts/enterprise_hq_backup_artifact_binding_service.py` provides a
+bounded caller interface that connects the explicit three-ledger binding
+verifier to the persistent binding receipt ledger.
+
+- verifies the existing binding receipt history before starting;
+- calls `verify_backup_artifact_binding()` with the caller's explicit inventory,
+  freshness-receipt, availability-ledger objects, and exact association;
+- appends only the exact successful aggregate result accepted by the receipt
+  ledger; failed source verification never creates a receipt;
+- independently verifies the complete receipt history after append and reads
+  the receipt back by its binding digest;
+- checks the receipt identifier, sequence, digest, record hash, and chain-head
+  relationship against the append response;
+- treats an exact replay as idempotent and reports RECORDED versus REPLAYED;
+- returns only aggregate receipt sequence/count and fixed verification flags;
+- keeps artifact-byte verification, execution authorization, automatic
+  dispatch, and automatic retry false.
+
+The receipt is historical evidence of the source snapshot that passed the
+three-ledger verifier. Later source-ledger changes do not rewrite that
+historical receipt. The service does not create source backups, inspect
+inventory artifact bytes, restore files, or contact external systems. The
+receipt database remains caller-supplied local storage; GitHub-hosted runner
+storage is ephemeral and is used only for temporary test fixtures.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_artifact_binding_service.py'`
+

@@ -295,5 +295,14 @@ class CompanyObserverPolicyTests(unittest.TestCase):
         )
         self.reject(workflow=altered)
 
+    def test_rejects_missing_backup_artifact_binding_service_suite(self):
+        altered = WORKFLOW.replace(
+            "test_enterprise_hq_backup_artifact_binding_service.py",
+            "test_missing_backup_artifact_binding_service.py",
+            1,
+        )
+        self.reject(workflow=altered)
+
+
 if __name__ == "__main__":
     unittest.main()
