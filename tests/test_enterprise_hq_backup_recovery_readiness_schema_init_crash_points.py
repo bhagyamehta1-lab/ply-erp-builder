@@ -206,12 +206,14 @@ class RecoveryReadinessSchemaInitializationCrashTests(unittest.TestCase):
         timestamp = datetime(2026, 11, 9, 19, 0, tzinfo=timezone.utc)
         with BackupRecoveryReadinessLedger(str(database)) as history:
             first = history.record_readiness_report(ready_report(), now=timestamp)
+            before = history.verify()
         with BackupRecoveryReadinessLedger(str(database)) as history:
             second = history.verify()
         self.assertEqual(first["sequence"], 1)
+        self.assertEqual(before["record_count"], 1)
         self.assertEqual(second["record_count"], 1)
         self.assertEqual(second["last_sequence"], 1)
-        self.assertEqual(second["chain_head_hash"], first["chain_head_hash"])
+        self.assertEqual(second["chain_head_hash"], before["chain_head_hash"])
 
 
 if __name__ == "__main__":
