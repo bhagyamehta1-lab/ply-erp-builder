@@ -121,6 +121,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_service.py'
       - name: Test independent recovery-readiness transition history
         run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_transitions.py'
+      - name: Test close-reopen recovery-readiness restart adapter
+        run: python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_restart.py'
       - name: Read private HQ metadata and emit aggregate-only report
         env:
           ENTERPRISE_HQ_READ_TOKEN: ${{ secrets.ENTERPRISE_HQ_READ_TOKEN }}

@@ -1252,3 +1252,35 @@ entire history. The report is descriptive and does not infer causality, trigger
 alerts, authorize tasks, or perform writes. It does not change the append-only
 history and does not claim a process restart. All tests use synthetic reports
 and temporary in-memory SQLite ledgers.
+
+
+## Close/reopen recovery-readiness restart adapter
+
+`scripts/enterprise_hq_backup_recovery_readiness_restart.py` adds a file-backed
+integration boundary around the four-ledger readiness service and persistent
+history ledger.
+
+The adapter:
+
+- requires all four source ledgers and a file-backed SQLite database path;
+- records the aggregate readiness evaluation through the existing service;
+- closes the first SQLite connection before opening a second connection;
+- calls `recover_after_restart()` on the reopened ledger;
+- independently verifies the exported history snapshot and adjacent transition
+  summary;
+- compares the reopened record count, sequence, chain head, READY/NOT_READY
+  counts, blocker totals, and latest evaluation against the original service
+  result;
+- rejects any disagreement or authorization-flag escalation;
+- returns aggregate counts and status only, omitting evaluation identifiers,
+  report digests, blocker names, and source payloads.
+
+The adapter does not restore backup bytes, create external copies, authorize
+execution, dispatch tasks, or retry work. Tests use synthetic four-ledger
+reports and temporary file-backed SQLite databases. This proves a local
+close/reopen boundary only; it does not prove off-host durability or production
+backup recovery.
+
+Run the focused suite with:
+
+`python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_restart.py'`
