@@ -228,9 +228,13 @@ class BackupRecoveryReadinessServiceTests(unittest.TestCase):
     def test_rejects_tampered_snapshot_identifier(self):
         original = self.history.export_verification_snapshot
 
+        calls = {"count": 0}
+
         def altered():
+            calls["count"] += 1
             snapshot = copy.deepcopy(original())
-            snapshot["records"][-1]["evaluation_id"] = "hqrr_" + "0" * 24
+            if calls["count"] >= 3:
+                snapshot["records"][-1]["evaluation_id"] = "hqrr_" + "0" * 24
             return snapshot
 
         with patch.object(self.history, "export_verification_snapshot", side_effect=altered):
@@ -250,9 +254,13 @@ class BackupRecoveryReadinessServiceTests(unittest.TestCase):
     def test_rejects_tampered_snapshot_digest(self):
         original = self.history.export_verification_snapshot
 
+        calls = {"count": 0}
+
         def altered():
+            calls["count"] += 1
             snapshot = copy.deepcopy(original())
-            snapshot["records"][-1]["report_digest"] = "0" * 64
+            if calls["count"] >= 3:
+                snapshot["records"][-1]["report_digest"] = "0" * 64
             return snapshot
 
         with patch.object(self.history, "export_verification_snapshot", side_effect=altered):
@@ -272,9 +280,13 @@ class BackupRecoveryReadinessServiceTests(unittest.TestCase):
     def test_rejects_tampered_snapshot_report(self):
         original = self.history.export_verification_snapshot
 
+        calls = {"count": 0}
+
         def altered():
+            calls["count"] += 1
             snapshot = copy.deepcopy(original())
-            snapshot["records"][-1]["report"]["metadata_readiness"] = "NOT_READY"
+            if calls["count"] >= 3:
+                snapshot["records"][-1]["report"]["metadata_readiness"] = "NOT_READY"
             return snapshot
 
         with patch.object(self.history, "export_verification_snapshot", side_effect=altered):
