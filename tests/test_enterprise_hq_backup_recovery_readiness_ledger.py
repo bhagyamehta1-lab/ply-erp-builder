@@ -328,6 +328,35 @@ class BackupRecoveryReadinessLedgerTests(unittest.TestCase):
         ):
             self.ledger.verify()
 
+    def test_snapshot_is_consistent_during_concurrent_wal_append(self):
+        self.ledger.record_readiness_report(ready_report(), now=self.now)
+        journal_mode = self.ledger._connection.execute(
+            "PRAGMA journal_mode = WAL"
+        ).fetchone()[0]
+        self.assertEqual(journal_mode.casefold(), "wal")
+        second = BackupRecoveryReadinessLedger(self.database)
+        try:
+            original_rows = self.ledger._snapshot_rows
+
+            def append_after_snapshot_rows():
+                rows = original_rows()
+                second.record_readiness_report(
+                    not_ready_report(), now=self.now + timedelta(minutes=1)
+                )
+                return rows
+
+            with patch.object(
+                self.ledger, "_snapshot_rows", side_effect=append_after_snapshot_rows
+            ):
+                snapshot = self.ledger.export_verification_snapshot()
+
+            self.assertEqual(snapshot["record_count"], 1)
+            self.assertEqual(snapshot["records"][-1]["sequence"], 1)
+            self.assertEqual(second.verify()["record_count"], 2)
+            self.assertEqual(self.ledger.verify()["record_count"], 2)
+        finally:
+            second.close()
+
     def test_concurrent_exact_replays_are_idempotent(self):
         second = BackupRecoveryReadinessLedger(self.database)
         try:
