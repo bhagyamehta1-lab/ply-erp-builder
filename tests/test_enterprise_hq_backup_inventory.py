@@ -405,5 +405,44 @@ class LedgerBackupInventoryTests(unittest.TestCase):
         self.assertEqual(result["artifact_presence"], "NOT_INSPECTED")
 
 
+    def test_list_backup_metadata_returns_ordered_metadata_only_rows(self):
+        first = self._record()
+        second_at = self.now + timedelta(seconds=1)
+        second_entry = self._entry(
+            backup_id="hqbk_1123456789abcdef01234567",
+            generation=2,
+            predecessor_backup_id=first["backup_id"],
+            created_at=second_at.isoformat().replace("+00:00", "Z"),
+            retain_until=(second_at + timedelta(days=30)).isoformat().replace("+00:00", "Z"),
+        )
+        self._record(entry=second_entry, now=second_at)
+
+        rows = self.inventory.list_backup_metadata()
+        self.assertEqual([row["generation"] for row in rows], [1, 2])
+        self.assertEqual(rows[1]["predecessor_backup_id"], rows[0]["backup_id"])
+        self.assertTrue(all(row["status"] == "BACKUP_METADATA_FOUND" for row in rows))
+        self.assertTrue(all(row["artifact_presence"] == "NOT_INSPECTED" for row in rows))
+        self.assertTrue(all(row["artifact_bytes_verified"] is False for row in rows))
+        self.assertTrue(all(row["execution_authorized"] is False for row in rows))
+        self.assertTrue(all(row["automatic_dispatch"] is False for row in rows))
+        self.assertTrue(all(row["automatic_retry"] is False for row in rows))
+        self.assertTrue(all("path" not in row and "payload" not in row for row in rows))
+
+    def test_list_backup_metadata_is_empty_for_empty_inventory(self):
+        self.assertEqual(self.inventory.list_backup_metadata(), [])
+
+    def test_list_backup_metadata_fails_closed_on_entry_digest_corruption(self):
+        self._record()
+        self.inventory._connection.execute(
+            "UPDATE ledger_backup_inventory SET entry_digest = ?",
+            ("0" * 64,),
+        )
+        with self.assertRaisesRegex(
+            BackupInventoryCorruptionError, "BACKUP_INVENTORY_ENTRY_DIGEST_INVALID"
+        ):
+            self.inventory.list_backup_metadata()
+
+
+
 if __name__ == "__main__":
     unittest.main()
