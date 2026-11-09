@@ -251,18 +251,18 @@ class BackupRecoveryReadinessTransitionTests(unittest.TestCase):
 
     def test_rejects_timestamp_regression(self):
         snapshot = self.snapshot(ready_report(), not_ready_report())
-        snapshot["records"][1]["evaluated_at"] = snapshot["records"][0]["evaluated_at"]
+        snapshot["records"][1]["evaluated_at"] = "2026-11-09T09:59:00.000000Z"
         self.reject(snapshot)
 
     def test_rejects_ready_report_with_blockers(self):
-        report = ready_report()
-        report["blocker_codes"] = ["RECOVERY_CHAIN_INCOMPLETE"]
-        self.reject(self.snapshot(report))
+        snapshot = self.snapshot(ready_report())
+        snapshot["records"][0]["report"]["blocker_codes"] = ["RECOVERY_CHAIN_INCOMPLETE"]
+        self.reject(snapshot)
 
     def test_rejects_not_ready_report_without_blockers(self):
-        report = not_ready_report()
-        report["blocker_codes"] = []
-        self.reject(self.snapshot(report))
+        snapshot = self.snapshot(not_ready_report())
+        snapshot["records"][0]["report"]["blocker_codes"] = []
+        self.reject(snapshot)
 
 
 if __name__ == "__main__":
