@@ -121,6 +121,7 @@ class BackupRecoveryReadinessLedger:
                 self._connection.execute("PRAGMA journal_mode = DELETE")
                 self._connection.executescript(
                     """
+                    BEGIN IMMEDIATE;
                     CREATE TABLE IF NOT EXISTS ledger_backup_recovery_readiness_meta (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
@@ -180,12 +181,19 @@ class BackupRecoveryReadinessLedger:
                     raise BackupRecoveryReadinessLedgerError(
                         "BACKUP_RECOVERY_READINESS_LEDGER_SCHEMA_VERSION_UNSUPPORTED"
                     )
+                self._connection.commit()
                 if Path(self.database).exists():
                     os.chmod(self.database, 0o600)
         except Exception:
             connection = getattr(self, "_connection", None)
             if connection is not None:
-                connection.close()
+                try:
+                    if connection.in_transaction:
+                        connection.rollback()
+                except Exception:
+                    pass
+                finally:
+                    connection.close()
             raise
 
     @contextmanager

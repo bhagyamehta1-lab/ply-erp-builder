@@ -1377,3 +1377,31 @@ off-host durability, authorize retry, or dispatch work.
 Run the focused suite with:
 
 `python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_existing_history_crash_points.py'`
+
+
+## Atomic recovery-readiness schema initialization
+
+The persistent recovery-readiness ledger now creates its tables, index, immutability
+triggers, schema-version row, and initial state checkpoint inside one explicit
+SQLite `BEGIN IMMEDIATE` transaction. The initialization transaction is committed
+only after the schema version and required state row have been validated. If any
+initialization step raises, the connection rolls back the open transaction before
+closing.
+
+The dedicated schema-initialization crash suite injects failures after each of the
+seven DDL statements, after each seed-row insertion, and immediately before the
+initialization commit. It verifies that no partial schema objects survive and that
+a later normal open can initialize and independently verify an empty ledger.
+A separate test confirms that reopening a populated ledger preserves its records
+and chain head.
+
+The tests use temporary synthetic SQLite databases only. They do not inspect or
+modify production backup files, private governance state, task grants, or product
+data. This is deterministic local persistence verification, not a machine-crash
+or power-loss durability certification.
+
+Run the focused suite with:
+
+```bash
+python -m unittest discover -s tests -p 'test_enterprise_hq_backup_recovery_readiness_schema_init_crash_points.py'
+```
