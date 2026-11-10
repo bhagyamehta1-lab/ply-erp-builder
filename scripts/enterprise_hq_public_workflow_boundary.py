@@ -195,8 +195,8 @@ def _has_permission_yaml_indirection(text: str) -> bool:
     Treating them as review-required avoids silently missing inherited write
     permissions while keeping ordinary quoted text and comments out of scope.
     """
-    header = re.compile(r"^( *)(?:permissions|['\"]permissions['\"])\\s*:\\s*(.*)$", re.IGNORECASE)
-    anchor_or_alias = re.compile(r"(?<![A-Za-z0-9_])(?:&|\\*)[A-Za-z0-9_-]+(?=$|[\\s,\\]}])")
+    header = re.compile(r"^( *)(?:permissions|['\"]permissions['\"])\s*:\s*(.*)$", re.IGNORECASE)
+    anchor_or_alias = re.compile(r"(?<![A-Za-z0-9_])(?:&|\*)[A-Za-z0-9_-]+(?=$|[\s,\]}])")
 
     lines = text.splitlines()
     for index, line in enumerate(lines):
