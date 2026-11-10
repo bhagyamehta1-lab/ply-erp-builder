@@ -446,7 +446,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         self.assertEqual(result["general_ci_workflow_count"], 1)
 
     def test_classifies_direct_permissions_alias_as_review_required(self):
-        root = self.fixture({"legacy.yml": "permissions: *shared_permissions\\n"})
+        root = self.fixture({"legacy.yml": "permissions: *shared_permissions\n"})
         result = self.audit(root)
         self.assertEqual(
             result["restricted_signal_counts"]["permission_yaml_indirection"], 1
@@ -454,7 +454,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_alias_inside_permissions_block(self):
         root = self.fixture({
-            "legacy.yml": "permissions:\\n  contents: *write_level\\n"
+            "legacy.yml": "permissions:\n  contents: *write_level\n"
         })
         result = self.audit(root)
         self.assertEqual(
@@ -464,9 +464,9 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
     def test_classifies_alias_inside_multiline_flow_permissions(self):
         root = self.fixture({
             "legacy.yml": (
-                "permissions: {\\n"
-                "contents: *write_level\\n"
-                "}\\n"
+                "permissions: {\n"
+                "contents: *write_level\n"
+                "}\n"
             )
         })
         result = self.audit(root)
@@ -476,7 +476,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_anchored_permissions_mapping_as_review_required(self):
         root = self.fixture({
-            "legacy.yml": "permissions: &shared_permissions { contents: read }\\n"
+            "legacy.yml": "permissions: &shared_permissions { contents: read }\n"
         })
         result = self.audit(root)
         self.assertEqual(
@@ -486,8 +486,8 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
     def test_ignores_permission_alias_text_inside_comments_and_quoted_scalars(self):
         root = self.fixture({
             "general.yml": (
-                'permissions: { contents: read } # *shared_permissions\\n'
-                'jobs:\\n  check:\\n    permissions: { contents: "*literal" }\\n'
+                'permissions: { contents: read } # *shared_permissions\n'
+                'jobs:\n  check:\n    permissions: { contents: "*literal" }\n'
             )
         })
         result = self.audit(root)
