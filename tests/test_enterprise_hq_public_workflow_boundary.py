@@ -414,5 +414,37 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
 
+    def test_classifies_quoted_inline_flow_write_with_trailing_comment(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "permissions: { contents: read, 'pull-requests': 'write' } # elevated\\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_classifies_quoted_multiline_flow_write_with_trailing_comment(self):
+        root = self.fixture({
+            "legacy.yml": (
+                "permissions: {\\n"
+                "  'security-events': 'write',\\n"
+                "  contents: read\\n"
+                "} # elevated\\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
+
+    def test_does_not_classify_permission_text_inside_flow_comment(self):
+        root = self.fixture({
+            "general.yml": (
+                "permissions: { contents: read } # pull-requests: write\\n"
+            )
+        })
+        result = self.audit(root)
+        self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 0)
+        self.assertEqual(result["general_ci_workflow_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

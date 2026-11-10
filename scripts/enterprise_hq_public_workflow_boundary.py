@@ -41,7 +41,7 @@ SIGNALS = {
         r"[\"']?permissions[\"']?:\s*\{[^}]*[\"']?(?:actions|attestations|checks|contents|"
         r"deployments|discussions|id-token|issues|models|packages|pages|"
         r"pull-requests|repository-projects|security-events|statuses|"
-        r"vulnerability-alerts)[\"']?\s*:\s*[\"']?write[\"']?[^}]*\})\s*$"
+        r"vulnerability-alerts)[\"']?\s*:\s*[\"']?write[\"']?[^}]*\}(?:[ \t]+#.*)?)[ \t]*$"
     ),
     "observer_boundary_overlap": re.compile(
         r"(?i)(?:scripts/enterprise_hq_company_observer\.py|"
