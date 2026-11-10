@@ -497,6 +497,25 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         self.assertEqual(result["general_ci_workflow_count"], 1)
 
 
+    def test_classifies_permission_alias_used_as_block_mapping_key(self):
+        root = self.fixture({
+            "legacy.yml": "permissions:\\n  *permission_name: write\\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["permission_yaml_indirection"], 1
+        )
+
+    def test_classifies_permission_alias_used_as_flow_mapping_key(self):
+        root = self.fixture({
+            "legacy.yml": "permissions: { *permission_name: write }\\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["permission_yaml_indirection"], 1
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
