@@ -389,14 +389,14 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_quoted_block_write_value(self):
         root = self.fixture({
-            "legacy.yml": "permissions:\\n  'pull-requests': 'write' # elevated\\n"
+            "legacy.yml": "permissions:\n  'pull-requests': 'write' # elevated\n"
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
 
     def test_classifies_quoted_inline_write_value(self):
         root = self.fixture({
-            "legacy.yml": 'permissions: { "checks": "write", contents: read }\\n'
+            "legacy.yml": 'permissions: { "checks": "write", contents: read }\n'
         })
         result = self.audit(root)
         self.assertEqual(result["restricted_signal_counts"]["privileged_capability"], 1)
@@ -404,10 +404,10 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
     def test_classifies_quoted_multiline_flow_write_value(self):
         root = self.fixture({
             "legacy.yml": (
-                "permissions: {\\n"
-                "  'security-events': 'write',\\n"
-                "  contents: read\\n"
-                "}\\n"
+                "permissions: {\n"
+                "  'security-events': 'write',\n"
+                "  contents: read\n"
+                "}\n"
             )
         })
         result = self.audit(root)
