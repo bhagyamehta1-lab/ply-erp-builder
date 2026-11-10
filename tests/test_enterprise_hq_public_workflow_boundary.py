@@ -516,6 +516,25 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
         )
 
 
+    def test_classifies_permission_alias_with_dotted_anchor_name(self):
+        root = self.fixture({
+            "legacy.yml": "permissions:\\n  *shared.policy: write\\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["permission_yaml_indirection"], 1
+        )
+
+    def test_classifies_permission_anchor_with_slash_name(self):
+        root = self.fixture({
+            "legacy.yml": "permissions: &team/policy { contents: read }\\n"
+        })
+        result = self.audit(root)
+        self.assertEqual(
+            result["restricted_signal_counts"]["permission_yaml_indirection"], 1
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
