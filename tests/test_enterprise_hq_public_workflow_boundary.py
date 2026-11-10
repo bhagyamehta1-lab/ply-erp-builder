@@ -499,7 +499,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_permission_alias_used_as_block_mapping_key(self):
         root = self.fixture({
-            "legacy.yml": "permissions:\\n  *permission_name: write\\n"
+            "legacy.yml": "permissions:\n  *permission_name: write\n"
         })
         result = self.audit(root)
         self.assertEqual(
@@ -508,7 +508,7 @@ class PublicWorkflowBoundaryTests(unittest.TestCase):
 
     def test_classifies_permission_alias_used_as_flow_mapping_key(self):
         root = self.fixture({
-            "legacy.yml": "permissions: { *permission_name: write }\\n"
+            "legacy.yml": "permissions: { *permission_name: write }\n"
         })
         result = self.audit(root)
         self.assertEqual(
