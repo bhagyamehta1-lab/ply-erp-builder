@@ -146,8 +146,82 @@ def _has_unconditional_artifact_upload(text: str) -> bool:
     return any(upload.search(block) and always.search(block) for block in _step_blocks(text))
 
 
+def _yaml_unquoted_content(line: str) -> str:
+    """Return YAML line content with comments and quoted scalars masked."""
+    visible = []
+    quote = None
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if quote is None:
+            if char in {"'", '"'}:
+                quote = char
+                visible.append(" ")
+                index += 1
+                continue
+            if char == "#" and (index == 0 or line[index - 1].isspace()):
+                break
+            visible.append(char)
+            index += 1
+            continue
+
+        visible.append(" ")
+        if quote == '"' and char == "\\" and index + 1 < len(line):
+            visible.append(" ")
+            index += 2
+            continue
+        if quote == "'" and char == "'" and index + 1 < len(line) and line[index + 1] == "'":
+            visible.append(" ")
+            index += 2
+            continue
+        if char == quote:
+            quote = None
+        index += 1
+    return "".join(visible)
+
+
+def _flow_collection_delta(line: str) -> int:
+    visible = _yaml_unquoted_content(line)
+    return (
+        visible.count("{") + visible.count("[")
+        - visible.count("}") - visible.count("]")
+    )
+
+
+def _has_permission_yaml_indirection(text: str) -> bool:
+    """Conservatively flag anchors/aliases inside top-level or job permissions.
+
+    Permission aliases cannot be resolved safely without a full YAML parser.
+    Treating them as review-required avoids silently missing inherited write
+    permissions while keeping ordinary quoted text and comments out of scope.
+    """
+    header = re.compile(r"^( *)(?:permissions|['\"]permissions['\"])\\s*:\\s*(.*)$", re.IGNORECASE)
+    anchor_or_alias = re.compile(r"(?<![A-Za-z0-9_])(?:&|\\*)[A-Za-z0-9_-]+(?=$|[\\s,\\]}])")
+
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = header.match(line)
+        if match is None:
+            continue
+        indent = len(match.group(1))
+        block = [match.group(2)]
+        flow_depth = _flow_collection_delta(match.group(2))
+        for candidate in lines[index + 1:]:
+            if candidate.strip():
+                candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+                if candidate_indent <= indent and flow_depth <= 0:
+                    break
+            block.append(candidate)
+            flow_depth += _flow_collection_delta(candidate)
+        if any(anchor_or_alias.search(_yaml_unquoted_content(item)) for item in block):
+            return True
+    return False
+
+
 def _classify(text: str) -> set[str]:
     flags = {name for name, pattern in SIGNALS.items() if pattern.search(text)}
+    if _has_permission_yaml_indirection(text):
+        flags.add("permission_yaml_indirection")
     if _has_broad_secret_scope(text):
         flags.add("broad_secret_scope")
     if _has_unconditional_artifact_upload(text):
@@ -212,6 +286,7 @@ def audit_workflow_directory(
     signal_counts.update({
         "broad_secret_scope": 0,
         "unconditional_artifact_publication": 0,
+        "permission_yaml_indirection": 0,
     })
     for name, content in contents.items():
         if name == EXPECTED_OBSERVER_FILE:
